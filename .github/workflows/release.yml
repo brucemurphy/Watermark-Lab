@@ -96,27 +96,26 @@ jobs:
 
       # -----------------------------------------------------------------------
       # 9. Upload version.json to Azure Blob Storage
-      #    The container is created (if absent) with blob-level public access
-      #    so the app can fetch version.json anonymously.
+      #    az CLI is pre-installed on windows-latest runners, so we call it
+      #    directly via pwsh — no Linux-only action required.
       # -----------------------------------------------------------------------
       - name: Upload version.json to Azure Blob
-        uses: azure/cli@v2
         env:
           AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
-        with:
-          inlineScript: |
-            az storage container create \
-              --name releases \
-              --public-access blob \
-              --connection-string "$AZURE_STORAGE_CONNECTION_STRING" \
-              --output none || true
-            az storage blob upload \
-              --container-name releases \
-              --name version.json \
-              --file version.json \
-              --overwrite \
-              --content-type "application/json" \
-              --connection-string "$AZURE_STORAGE_CONNECTION_STRING"
+        run: |
+          az storage container create `
+            --name releases `
+            --public-access blob `
+            --connection-string $env:AZURE_STORAGE_CONNECTION_STRING `
+            --output none
+          az storage blob upload `
+            --container-name releases `
+            --name version.json `
+            --file version.json `
+            --overwrite `
+            --content-type "application/json" `
+            --connection-string $env:AZURE_STORAGE_CONNECTION_STRING
+        shell: pwsh
 
       # -----------------------------------------------------------------------
       # 10. Create the GitHub Release and attach WatermarkLab.exe

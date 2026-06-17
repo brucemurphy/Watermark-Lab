@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+
+# User-supplied FFmpeg binaries (see README -> FFmpeg setup)
+ffmpeg.exe
+ffprobe.exe
+ffplay.exe
+
+# Built executables / PyInstaller output
+WatermarkLab.exe
+build/
+dist/
+
+# Auto-update temp files
+WatermarkLab.exe.tmp
+WatermarkLab.exe.old
+
+# Editor / OS
+.vscode/
+.idea/
+.vs/
+.DS_Store
+Thumbs.db

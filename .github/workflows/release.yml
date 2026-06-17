@@ -1,0 +1,130 @@
+name: Release
+
+# Trigger: push a tag like v1.2.3
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+permissions:
+  contents: write   # needed to create the GitHub Release
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+
+    steps:
+      # -----------------------------------------------------------------------
+      # 1. Check out the repository
+      # -----------------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # 2. Set up Python
+      # -----------------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # -----------------------------------------------------------------------
+      # 3. Install build dependencies
+      # -----------------------------------------------------------------------
+      - name: Install dependencies
+        run: pip install pyinstaller pywin32 Pillow packaging
+
+      # -----------------------------------------------------------------------
+      # 4. Download FFmpeg (the GitHub-hosted runner does not include it)
+      # -----------------------------------------------------------------------
+      - name: Download FFmpeg
+        run: |
+          $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
+          $bin = Get-ChildItem -Recurse -Filter "ffmpeg.exe" ffmpeg_tmp | Select-Object -First 1
+          Copy-Item $bin.FullName -Destination ffmpeg.exe
+          $bin2 = Get-ChildItem -Recurse -Filter "ffprobe.exe" ffmpeg_tmp | Select-Object -First 1
+          Copy-Item $bin2.FullName -Destination ffprobe.exe
+          Remove-Item -Recurse -Force ffmpeg_tmp, ffmpeg.zip
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
+      # 5. Stamp the version into _version.py
+      #    The tag is "vX.Y.Z"; strip the leading "v" for the constant.
+      # -----------------------------------------------------------------------
+      - name: Stamp version
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          Set-Content -Path _version.py -Value "APP_VERSION = `"$version`""
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
+      # 6. Build the portable exe
+      # -----------------------------------------------------------------------
+      - name: Build with PyInstaller
+        run: pyinstaller WatermarkLab.spec
+
+      # -----------------------------------------------------------------------
+      # 7. Compute SHA-256 of the output exe
+      # -----------------------------------------------------------------------
+      - name: Compute SHA-256
+        id: sha
+        run: |
+          $hash = (Get-FileHash dist\WatermarkLab.exe -Algorithm SHA256).Hash.ToLower()
+          echo "digest=$hash" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
+      # 8. Build the public download URL and write version.json
+      #    URL points at the GitHub Release asset so the blob just stores the
+      #    manifest; the binary is served by GitHub Releases CDN.
+      # -----------------------------------------------------------------------
+      - name: Write version.json
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          $sha     = "${{ steps.sha.outputs.digest }}"
+          $url     = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/WatermarkLab.exe"
+          $json = @{
+            version = $version
+            url     = $url
+            sha256  = $sha
+            notes   = ""
+          } | ConvertTo-Json -Compress
+          Set-Content -Path version.json -Value $json
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
+      # 9. Upload version.json to Azure Blob Storage
+      #    The container is created (if absent) with blob-level public access
+      #    so the app can fetch version.json anonymously.
+      # -----------------------------------------------------------------------
+      - name: Upload version.json to Azure Blob
+        uses: azure/cli@v2
+        env:
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+        with:
+          inlineScript: |
+            az storage container create \
+              --name releases \
+              --public-access blob \
+              --connection-string "$AZURE_STORAGE_CONNECTION_STRING" \
+              --output none || true
+            az storage blob upload \
+              --container-name releases \
+              --name version.json \
+              --file version.json \
+              --overwrite \
+              --content-type "application/json" \
+              --connection-string "$AZURE_STORAGE_CONNECTION_STRING"
+
+      # -----------------------------------------------------------------------
+      # 10. Create the GitHub Release and attach WatermarkLab.exe
+      # -----------------------------------------------------------------------
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "Watermark Lab ${{ github.ref_name }}"
+          generate_release_notes: true
+          files: dist/WatermarkLab.exe

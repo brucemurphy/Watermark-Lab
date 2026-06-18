@@ -36,19 +36,15 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # Test frameworks
+        # Test / dev tools — never needed at runtime
         'unittest', 'doctest', 'pdb', 'pydoc',
-        # Unused stdlib heavyweights
-        'email', 'html', 'http', 'urllib.robotparser',
-        'xmlrpc', 'ftplib', 'imaplib', 'poplib', 'smtplib', 'telnetlib',
+        # Truly unused: no sqlite, no multiprocessing, no XML, no spreadsheet
         'sqlite3', '_sqlite3',
         'multiprocessing',
-        'concurrent.futures',
-        'asyncio',
         'xml.etree',
+        'csv',
         'difflib',
         'calendar',
-        'csv',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

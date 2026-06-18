@@ -133,30 +133,42 @@ def apply_update(progress_cb=None):
 
     fd, zip_tmp = tempfile.mkstemp(suffix=".zip", prefix="wml_update_")
     os.close(fd)
+
+    # Extract to a private temp dir first — never touch the running app_dir
+    extract_tmp = os.path.join(parent, "WatermarkLab_extract_tmp")
+
     try:
         _stream_download(zip_url, zip_tmp, progress_cb)
 
-        if os.path.exists(new_dir):
-            shutil.rmtree(new_dir, ignore_errors=True)
+        # Clean up any leftover staging dirs from a previous failed update
+        for d in (new_dir, extract_tmp):
+            if os.path.exists(d):
+                shutil.rmtree(d, ignore_errors=True)
 
+        # Extract into a private staging folder, never into parent directly
+        os.makedirs(extract_tmp, exist_ok=True)
         with zipfile.ZipFile(zip_tmp) as zf:
-            zf.extractall(parent)
+            zf.extractall(extract_tmp)
 
-        if not os.path.isdir(new_dir):
-            candidates = [
-                d for d in os.listdir(parent)
-                if d.lower().startswith("watermarklab") and
-                os.path.isdir(os.path.join(parent, d)) and
-                d != os.path.basename(app_dir)
-            ]
-            if not candidates:
-                raise RuntimeError("Could not find extracted folder after unzip.")
-            os.rename(os.path.join(parent, candidates[0]), new_dir)
+        # The zip contains a single top-level folder (WatermarkLab or similar)
+        entries = [
+            e for e in os.listdir(extract_tmp)
+            if os.path.isdir(os.path.join(extract_tmp, e))
+        ]
+        if not entries:
+            raise RuntimeError("Zip contained no top-level folder after extraction.")
+
+        extracted = os.path.join(extract_tmp, entries[0])
+        os.rename(extracted, new_dir)
+
     finally:
         try:
             os.remove(zip_tmp)
         except OSError:
             pass
+        # Clean up staging dir whether we succeeded or failed
+        if os.path.exists(extract_tmp):
+            shutil.rmtree(extract_tmp, ignore_errors=True)
 
     fd2, ps1 = tempfile.mkstemp(suffix=".ps1", prefix="wml_swap_")
     os.close(fd2)

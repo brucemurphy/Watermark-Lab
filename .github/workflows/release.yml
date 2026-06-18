@@ -59,7 +59,19 @@ jobs:
         shell: pwsh
 
       # -----------------------------------------------------------------------
-      # 7. Create GitHub Release and attach WatermarkLab.zip
+      # 7. Read release notes from version.json
+      # -----------------------------------------------------------------------
+      - name: Read release notes
+        id: notes
+        run: |
+          $notes = (Get-Content version.json | ConvertFrom-Json).notes
+          # Expand \n escape sequences so they become real newlines in the release body
+          $notes = $notes -replace '\\n', "`n"
+          echo "body=$notes" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
+      # 8. Create GitHub Release and attach WatermarkLab.zip
       #    The in-app updater queries the GitHub Releases API at runtime to
       #    find this asset and download it automatically.
       # -----------------------------------------------------------------------
@@ -68,6 +80,6 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: "Watermark Lab ${{ github.ref_name }}"
-          generate_release_notes: true
+          body: ${{ steps.notes.outputs.body }}
           files: dist/WatermarkLab.zip
 

@@ -29,3 +29,6 @@ WatermarkLab.exe.old
 .vs/
 .DS_Store
 Thumbs.db
+
+# Local-only dev reference (never pushed to GitHub)
+CHANGELOG.md

@@ -1,28 +1,29 @@
 """ffmpeg resolution and on-demand download for Watermark Lab.
 
 On first use the app downloads a minimal ffmpeg build from the official
-GyanD/codexffmpeg GitHub releases into a persistent user-local cache:
+GyanD/codexffmpeg GitHub releases and saves it beside the running exe
+(or beside this script when running from source):
 
-	%LOCALAPPDATA%\WatermarkLab\ffmpeg.exe
+	<app folder>\ffmpeg.exe
 
-That folder is user-writable, survives app updates (it lives outside the
-exe), and requires no administrator privileges.
+This keeps the app fully self-contained and portable — copy the folder
+to a USB stick or another machine and ffmpeg comes with it.
 
-Subsequent launches find the cached binary instantly — no network call.
+Subsequent launches find the binary instantly — no network call.
 
 Public API
 ----------
 get_ffmpeg_exe() -> str
 	Return the path to a ready ffmpeg binary.
-	Raises FfmpegNotReadyError if ffmpeg is not cached yet.
+	Raises FfmpegNotReadyError if ffmpeg has not been downloaded yet.
 
 is_ffmpeg_cached() -> bool
 	Quick check — no network call.
 
 download_ffmpeg(progress_cb=None) -> str
-	Download, extract, and cache ffmpeg.exe.
+	Download, extract, and save ffmpeg.exe beside the app.
 	progress_cb(bytes_done: int, total: int | None) is called during download.
-	Returns the path to the cached binary.
+	Returns the path to the binary.
 """
 import io
 import json
@@ -44,16 +45,17 @@ _TIMEOUT_API      = 15
 _TIMEOUT_DOWNLOAD = 120
 
 
-def _cache_dir() -> str:
-	"""Return (and create) the persistent cache directory for this app."""
-	base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-	d = os.path.join(base, "WatermarkLab")
-	os.makedirs(d, exist_ok=True)
-	return d
+def _app_dir() -> str:
+	"""Return the folder that contains the running exe (or this script)."""
+	if getattr(sys, "frozen", False):
+		# PyInstaller: sys.executable is the .exe path
+		return os.path.dirname(os.path.abspath(sys.executable))
+	# Running from source
+	return os.path.dirname(os.path.abspath(__file__))
 
 
 def _cached_exe() -> str:
-	return os.path.join(_cache_dir(), "ffmpeg.exe")
+	return os.path.join(_app_dir(), "ffmpeg.exe")
 
 
 # ---------------------------------------------------------------------------

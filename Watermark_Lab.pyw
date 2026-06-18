@@ -292,8 +292,8 @@ class WatermarkApp(tk.Tk):
         if not messagebox.askyesno(
             "ffmpeg required",
             "Video watermarking needs ffmpeg, which hasn't been downloaded yet.\n\n"
-            "It will be downloaded once (~30 MB) from GitHub and saved to:\n"
-            f"  %LOCALAPPDATA%\\WatermarkLab\\ffmpeg.exe\n\n"
+            "It will be downloaded once (~30 MB) from GitHub and saved alongside\n"
+            "this application so it travels with it.\n\n"
             "Download now?",
             parent=self,
         ):
@@ -352,7 +352,7 @@ class WatermarkApp(tk.Tk):
                     "Download failed",
                     f"Could not download ffmpeg:\n{err}\n\n"
                     "Download it manually from https://www.gyan.dev/ffmpeg/builds/ "
-                    "and place ffmpeg.exe in %LOCALAPPDATA%\\WatermarkLab\\",
+                    "and place ffmpeg.exe in the same folder as this application.",
                     parent=self,
                 )
                 self.status_var.set("ffmpeg download failed.")

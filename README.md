@@ -33,13 +33,13 @@ pip install pywin32 Pillow packaging
 
 ## FFmpeg setup
 
-No manual setup required. On the **first time you watermark a video**, the app will prompt you to download ffmpeg automatically. It fetches the latest minimal build from [GyanD/codexffmpeg](https://github.com/GyanD/codexffmpeg/releases) (~30 MB) and saves it to:
+No manual setup required. On the **first time you watermark a video**, the app will prompt you to download ffmpeg automatically. It fetches the latest minimal build from [GyanD/codexffmpeg](https://github.com/GyanD/codexffmpeg/releases) (~30 MB) and saves it **alongside the application**:
 
 ```
-%LOCALAPPDATA%\WatermarkLab\ffmpeg.exe
+<folder containing WatermarkLab.exe>\ffmpeg.exe
 ```
 
-This cache persists across app updates so the download only happens once. PowerPoint watermarking works without ffmpeg at all.
+This keeps the app fully portable — copy the folder to a USB stick or another machine and ffmpeg comes with it. PowerPoint watermarking works without ffmpeg at all.
 
 ---
 

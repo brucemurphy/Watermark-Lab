@@ -87,23 +87,26 @@ _TCL_KEEP = {
     'msgbox.tcl', 'panedwindow.tcl', 'tearoff.tcl', 'menu.tcl',
 }
 
-def _keep_tcl(src_path: str) -> bool:
+def _keep_tcl(dst_path: str, src_path: str) -> bool:
     """Return True if this Tcl/Tk data file should be kept."""
-    parts = src_path.replace('\\', '/').lower().split('/')
+    # Check destination path (what ends up in the output folder)
+    parts = dst_path.replace('\\', '/').lower().split('/')
     # Always keep files not in the tcl/tk data trees
     if '_tcl_data' not in parts and '_tk_data' not in parts:
         return True
+    # Drop the entire Tcl tzdata tree (America, Europe, Asia etc.)
+    if 'tzdata' in parts:
+        return False
     # Keep ttk theme directory entirely
     if 'ttk' in parts:
         return True
     # Keep individual core files
-    fname = os.path.basename(src_path)
+    fname = os.path.basename(dst_path)
     if fname in _TCL_KEEP:
         return True
-    # Drop everything else (encodings, msgs, demos, http, opt packages)
     return False
 
-a.datas = [(dst, src, kind) for dst, src, kind in a.datas if _keep_tcl(src)]
+a.datas = [(dst, src, kind) for dst, src, kind in a.datas if _keep_tcl(dst, src)]
 
 exe = EXE(
     pyz,

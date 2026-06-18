@@ -41,19 +41,32 @@ _TIMEOUT = 15
 _UA      = f"WatermarkLab/{APP_VERSION} (update-check)"
 
 _SWAP_PS1 = """
-param($OldDir, $NewDir, $Exe)
-$ErrorActionPreference = 'Stop'
+param($OldDir, $NewDir, $ExeName)
+$ErrorActionPreference = 'SilentlyContinue'
+
+# 1. Wait for the running process to exit (up to 60 s)
 for ($i = 0; $i -lt 60; $i++) {
     if (-not (Get-Process -Name 'WatermarkLab' -ErrorAction SilentlyContinue)) { break }
     Start-Sleep -Seconds 1
 }
-$backup = "$OldDir`_old"
-if (Test-Path $backup) { Remove-Item $backup -Recurse -Force }
-Rename-Item -LiteralPath $OldDir -NewName $backup
-Rename-Item -LiteralPath $NewDir -NewName $OldDir
-Start-Process -FilePath $Exe
+
+# 2. Rename current app folder to _old (backup)
+$backup = $OldDir + '_old'
+if (Test-Path -LiteralPath $backup) {
+    Remove-Item -LiteralPath $backup -Recurse -Force
+}
+Move-Item -LiteralPath $OldDir -Destination $backup -Force
+
+# 3. Move new folder into place as the app folder
+Move-Item -LiteralPath $NewDir -Destination $OldDir -Force
+
+# 4. Launch the new exe from its final location
+$newExe = Join-Path $OldDir $ExeName
+Start-Process -FilePath $newExe
+
+# 5. Clean up old folder and this script
 Start-Sleep -Seconds 5
-Remove-Item $backup -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 """
 
@@ -190,7 +203,6 @@ def apply_update(progress_cb=None):
 
     fd2, ps1 = tempfile.mkstemp(suffix=".ps1", prefix="wml_swap_")
     os.close(fd2)
-    new_exe = os.path.join(new_dir, "WatermarkLab.exe")
     with open(ps1, "w", encoding="utf-8") as f:
         f.write(_SWAP_PS1)
 
@@ -200,7 +212,10 @@ def apply_update(progress_cb=None):
     subprocess.Popen(
         ["powershell.exe", "-NoProfile", "-NonInteractive",
          "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
-         "-File", ps1, "-OldDir", app_dir, "-NewDir", new_dir, "-Exe", new_exe],
+         "-File", ps1,
+         "-OldDir",  app_dir,
+         "-NewDir",  new_dir,
+         "-ExeName", "WatermarkLab.exe"],
         creationflags=subprocess.CREATE_NO_WINDOW,
         startupinfo=si,
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,

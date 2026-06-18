@@ -34,9 +34,8 @@ from packaging.version import Version
 
 from _version import APP_VERSION
 
-GITHUB_REPO      = "brucemurphy/Watermark-Lab"
-RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-ZIP_ASSET_NAME   = "WatermarkLab.zip"
+GITHUB_REPO    = "brucemurphy/Watermark-Lab"
+ZIP_ASSET_NAME = "WatermarkLab.zip"
 
 _TIMEOUT = 15
 _UA      = f"WatermarkLab/{APP_VERSION} (update-check)"
@@ -65,8 +64,27 @@ def _api_get(url):
         return json.loads(resp.read().decode("utf-8"))
 
 
-def _fetch_latest_release():
-    return _api_get(RELEASES_API_URL)
+def _fetch_latest_release() -> dict:
+    """Return the highest-versioned published release by semver, not publish date."""
+    releases = _api_get(
+        f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=20"
+    )
+    best = None
+    best_ver = None
+    for r in releases:
+        if r.get("draft") or r.get("prerelease"):
+            continue
+        tag = r.get("tag_name", "")
+        try:
+            v = Version(tag.lstrip("v"))
+        except Exception:
+            continue
+        if best_ver is None or v > best_ver:
+            best_ver = v
+            best = r
+    if not best:
+        raise RuntimeError("No published releases found.")
+    return best
 
 
 def _zip_download_url(release):

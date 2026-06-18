@@ -90,40 +90,50 @@ a.binaries = [
 # encoding.  Everything else (locales, demos, extra encodings, old http
 # packages, opt packages) is dead weight.
 # ---------------------------------------------------------------------------
-_TCL_KEEP = {
-    'init.tcl', 'tk.tcl', 'ttk', 'button.tcl', 'entry.tcl',
-    'scale.tcl', 'scrollbar.tcl', 'listbox.tcl', 'dialog.tcl',
-    'msgbox.tcl', 'panedwindow.tcl', 'tearoff.tcl', 'menu.tcl',
-}
-
-# Tcl .tm packages we don't need
 _TCL_TM_STRIP = {'http', 'tcltest', 'msgcat', 'platform'}
 
 def _keep_tcl(dst_path: str, src_path: str) -> bool:
     """Return True if this Tcl/Tk data file should be kept."""
     parts = dst_path.replace('\\', '/').lower().split('/')
-    # Always keep files not in the tcl/tk data trees
-    if '_tcl_data' not in parts and '_tk_data' not in parts and 'tcl8' not in parts:
-        return True
-    # Drop the entire Tcl tzdata tree (America, Europe, Asia etc.)
-    if 'tzdata' in parts:
-        return False
-    # Drop .tm package files we don't use
-    fname = os.path.basename(dst_path)
-    if fname.endswith('.tm'):
-        stem = fname.split('-')[0].lower()  # e.g. "http-2.9.8.tm" -> "http"
-        if stem in _TCL_TM_STRIP:
+
+    # --- _tcl_data (core Tcl library) ---
+    # Keep everything EXCEPT tzdata (timezone db) and unused .tm packages.
+    # The full Tcl library is required for initialisation — do not strip
+    # individual .tcl files or tcl_findLibrary / other core procs will fail.
+    if '_tcl_data' in parts:
+        if 'tzdata' in parts:
             return False
-    # Drop macOS-only Aqua theme
-    if 'aquatheme.tcl' in dst_path.lower():
-        return False
-    # Keep ttk theme directory entirely
-    if 'ttk' in parts:
+        fname = os.path.basename(dst_path)
+        if fname.endswith('.tm'):
+            stem = fname.split('-')[0].lower()
+            if stem in _TCL_TM_STRIP:
+                return False
         return True
-    # Keep individual core files
-    if fname in _TCL_KEEP:
+
+    # --- _tk_data (Tk widget library) ---
+    # Keep ttk themes (needed for dark theme) and core widget scripts.
+    if '_tk_data' in parts:
+        if 'ttk' in parts:
+            if 'aquatheme.tcl' in dst_path.lower():
+                return False   # macOS only
+            return True
+        fname = os.path.basename(dst_path)
+        return fname in {
+            'tk.tcl', 'button.tcl', 'entry.tcl', 'scale.tcl',
+            'scrollbar.tcl', 'listbox.tcl', 'dialog.tcl',
+            'msgbox.tcl', 'panedwindow.tcl', 'tearoff.tcl', 'menu.tcl',
+        }
+
+    # --- tcl8 .tm packages ---
+    if 'tcl8' in parts:
+        fname = os.path.basename(dst_path)
+        if fname.endswith('.tm'):
+            stem = fname.split('-')[0].lower()
+            if stem in _TCL_TM_STRIP:
+                return False
         return True
-    return False
+
+    return True
 
 a.datas = [(dst, src, kind) for dst, src, kind in a.datas if _keep_tcl(dst, src)]
 

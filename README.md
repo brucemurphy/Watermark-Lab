@@ -61,13 +61,16 @@ This keeps the app fully portable — copy the folder to a USB stick or another 
 
 ## Building a portable executable
 
-You can package Watermark Lab into a **single self-contained `WatermarkLab.exe`** using [PyInstaller](https://pyinstaller.org/). The resulting executable is fully portable — copy it to a USB stick, network share, or any folder and double-click to run. No Python install required on the target machine.
+You can package Watermark Lab as a **self-contained folder** using [PyInstaller](https://pyinstaller.org/). Zip the folder and it runs on any Windows 10/11 machine with no Python install required.
 
-### How the portable exe works
+### Why a folder (onedir) instead of a single exe (onefile)?
 
-The build embeds the Python runtime, the application code, the image assets, and the FFmpeg binaries into a single `.exe`. At launch, PyInstaller's bootloader unpacks that payload into a temporary `_MEI<pid>` subfolder **next to the executable** (not in `%TEMP%`), runs the app from there, and cleans the folder up on a normal exit.
+Onefile mode extracts a temporary `_MEI` folder at every launch. This causes two fatal problems:
 
-Extracting beside the exe (rather than in `%TEMP%`) is what keeps it portable and also lets it run on locked-down corporate machines where **Windows Application Control / WDAC** blocks DLL loads from `%TEMP%`. This is configured in [WatermarkLab.spec](WatermarkLab.spec) via `runtime_tmpdir='.'`.
+- **OneDrive** — the sync engine locks freshly-extracted files before the app can read them → crash
+- **WDAC / App Control** — corporate policy blocks DLL loads from `%TEMP%` → blocked
+
+Onedir has no runtime extraction. All files are pre-extracted at build time and stay where they are.
 
 ### Build steps
 
@@ -78,13 +81,17 @@ Extracting beside the exe (rather than in `%TEMP%`) is what keeps it portable an
    pip install pyinstaller pywin32 Pillow packaging
    ```
 
-3. Build the executable:
+3. Build:
 
    ```powershell
    pyinstaller WatermarkLab.spec
    ```
 
-4. The portable executable is written to **`dist\WatermarkLab.exe`**. Copy that single file wherever you want to run it.
+4. The output folder is `dist\WatermarkLab\`. Zip it and copy anywhere:
+
+   ```powershell
+   Compress-Archive -Path dist\WatermarkLab -DestinationPath WatermarkLab.zip
+   ```
 
 ### What gets embedded
 

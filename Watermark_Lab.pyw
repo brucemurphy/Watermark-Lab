@@ -1,5 +1,4 @@
 """Watermark Lab — Tkinter GUI for PowerPoint and video watermarking."""
-import glob
 import os
 import shutil
 import subprocess
@@ -432,27 +431,6 @@ def _show_splash(image_path: str, duration_ms: int) -> None:
     splash.mainloop()
 
 
-def _sweep_stale_mei() -> None:
-    """Delete leftover _MEI* extraction folders from previous runs.
-
-    With runtime_tmpdir='.' the bootloader extracts beside the exe.
-    On OneDrive paths the sync engine occasionally prevents deletion on
-    exit, leaving stale folders behind.  Sweep them on the next startup
-    (skip our own live folder — its DLLs are still loaded).
-    Running from source (no sys._MEIPASS) is a no-op.
-    """
-    mei = getattr(sys, "_MEIPASS", None)
-    if not mei:
-        return
-    mei_norm = os.path.normcase(os.path.normpath(mei))
-    base_dir = os.path.dirname(mei)
-    for path in glob.glob(os.path.join(base_dir, "_MEI*")):
-        if os.path.normcase(os.path.normpath(path)) == mei_norm:
-            continue
-        if os.path.isdir(path):
-            shutil.rmtree(path, ignore_errors=True)
-
-
 def _on_update_available(root: tk.Tk, remote_version: str, notes: str) -> None:
     """Prompt the user and apply the update if they agree."""
     msg = f"Watermark Lab {remote_version} is available."
@@ -476,8 +454,7 @@ def _on_update_available(root: tk.Tk, remote_version: str, notes: str) -> None:
 
 if __name__ == "__main__":
     cleanup_old_exe()
-    _sweep_stale_mei()
-    _show_splash(SPLASH_IMAGE, SPLASH_DURATION_MS)
+    _show_splash
     app = WatermarkApp()
     app.after(
         3000,

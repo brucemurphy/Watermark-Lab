@@ -46,13 +46,20 @@ jobs:
         shell: pwsh
 
       # -----------------------------------------------------------------------
-      # 5. Build the portable exe
+      # 5. Build the onedir folder
       # -----------------------------------------------------------------------
       - name: Build with PyInstaller
         run: pyinstaller WatermarkLab.spec
 
       # -----------------------------------------------------------------------
-      # 6. Create the GitHub Release and attach WatermarkLab.exe
+      # 6. Zip the output folder → WatermarkLab.zip
+      # -----------------------------------------------------------------------
+      - name: Zip output
+        run: Compress-Archive -Path dist\WatermarkLab -DestinationPath dist\WatermarkLab.zip
+        shell: pwsh
+
+      # -----------------------------------------------------------------------
+      # 7. Create GitHub Release and attach WatermarkLab.zip
       #    The in-app updater queries the GitHub Releases API at runtime to
       #    find this asset and download it automatically.
       # -----------------------------------------------------------------------
@@ -62,5 +69,5 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "Watermark Lab ${{ github.ref_name }}"
           generate_release_notes: true
-          files: dist/WatermarkLab.exe
+          files: dist/WatermarkLab.zip
 

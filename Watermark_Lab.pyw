@@ -1,11 +1,8 @@
 """Watermark Lab — Tkinter GUI for PowerPoint and video watermarking."""
-import atexit
-import glob
 import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, colorchooser
@@ -434,141 +431,6 @@ def _show_splash(image_path: str, duration_ms: int) -> None:
     splash.mainloop()
 
 
-_CLEANUP_PS1 = r"""
-$ErrorActionPreference = 'SilentlyContinue'
-$ppid = {ppid}
-$mei  = '{mei}'
-
-Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-using System.Text;
-public class MeiWin {{
-    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-    [DllImport("user32.dll")]
-    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-    [DllImport("user32.dll")]
-    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
-    [DllImport("user32.dll", CharSet=CharSet.Auto)]
-    public static extern int GetClassName(IntPtr hWnd, StringBuilder lpClassName, int nMaxCount);
-    [DllImport("user32.dll", CharSet=CharSet.Auto)]
-    public static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
-    [DllImport("user32.dll")]
-    public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
-    [DllImport("user32.dll")]
-    public static extern bool IsWindowVisible(IntPtr hWnd);
-}}
-"@
-
-$cb = [MeiWin+EnumWindowsProc]{{
-    param($h, $l)
-    $procId = 0
-    [MeiWin]::GetWindowThreadProcessId($h, [ref]$procId) | Out-Null
-    if ($procId -eq $script:ppid -and [MeiWin]::IsWindowVisible($h)) {{
-        $sb = New-Object System.Text.StringBuilder 64
-        [MeiWin]::GetClassName($h, $sb, $sb.Capacity) | Out-Null
-        if ($sb.ToString() -eq '#32770') {{
-            # WM_CLOSE = 0x0010
-            [MeiWin]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-        }}
-    }}
-    return $true
-}}
-
-# Poll while parent is alive, auto-dismissing any modal warning dialog
-# (class #32770) it shows — namely PyInstaller's "Failed to remove
-# temporary directory" MessageBox when its built-in retry gives up.
-for ($i = 0; $i -lt 600; $i++) {{
-    $p = Get-Process -Id $script:ppid -ErrorAction SilentlyContinue
-    if (-not $p) {{ break }}
-    [MeiWin]::EnumWindows($cb, [IntPtr]::Zero) | Out-Null
-    Start-Sleep -Milliseconds 200
-}}
-
-# Parent has exited (or vanished). Retry-delete our _MEI folder.
-for ($i = 0; $i -lt 120; $i++) {{
-    if (-not (Test-Path -LiteralPath $mei)) {{ break }}
-    Remove-Item -LiteralPath $mei -Recurse -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 1
-}}
-
-Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
-"""
-
-
-def _register_mei_cleanup():
-    """Remove leftover PyInstaller _MEI* extraction folders.
-
-    With ``runtime_tmpdir='.'`` the onefile bootloader unpacks beside the
-    exe; on OneDrive paths the auto-cleanup often fails because files are
-    briefly held by the sync engine, and the bootloader then pops up a
-    modal "Failed to remove temporary directory" warning. Strategy:
-      1. On startup, sweep any stale ``_MEI*`` siblings from prior runs
-         (skip our own — its DLLs are loaded).
-      2. On exit, launch a fully hidden PowerShell helper that:
-           a. dismisses any modal warning dialog the bootloader shows
-              while our process is still alive, and
-           b. retries deletion of our own _MEI folder after we exit,
-              then self-deletes.
-    Running from source (no ``sys._MEIPASS``) is a no-op.
-    """
-    mei = getattr(sys, "_MEIPASS", None)
-    base_dir = os.path.dirname(mei) if mei else SCRIPT_DIR
-
-    # 1. Sweep stale siblings.
-    try:
-        mei_norm = os.path.normcase(os.path.normpath(mei)) if mei else None
-        for path in glob.glob(os.path.join(base_dir, "_MEI*")):
-            if mei_norm and os.path.normcase(os.path.normpath(path)) == mei_norm:
-                continue
-            if os.path.isdir(path):
-                shutil.rmtree(path, ignore_errors=True)
-    except Exception:
-        pass
-
-    if not mei:
-        return  # running from source, no _MEI folder to schedule
-
-    # 2. Schedule the hidden helper for after exit.
-    def _schedule_self_cleanup():
-        try:
-            fd, ps1 = tempfile.mkstemp(suffix=".ps1", prefix="meiclean_")
-            os.close(fd)
-            script = _CLEANUP_PS1.format(
-                ppid=os.getpid(),
-                mei=mei.replace("'", "''"),
-            )
-            with open(ps1, "w", encoding="utf-8", newline="") as f:
-                f.write(script)
-
-            # Fully hidden launch: CREATE_NO_WINDOW + STARTUPINFO/SW_HIDE.
-            # Do NOT combine with DETACHED_PROCESS — that pair can cause
-            # cmd/powershell to briefly flash a console on some systems.
-            si = subprocess.STARTUPINFO()
-            si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            si.wShowWindow = 0  # SW_HIDE
-
-            subprocess.Popen(
-                [
-                    "powershell.exe",
-                    "-NoProfile", "-NonInteractive",
-                    "-WindowStyle", "Hidden",
-                    "-ExecutionPolicy", "Bypass",
-                    "-File", ps1,
-                ],
-                creationflags=subprocess.CREATE_NO_WINDOW,
-                startupinfo=si,
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                close_fds=True,
-            )
-        except Exception:
-            pass
-
-    atexit.register(_schedule_self_cleanup)
-
-
 def _on_update_available(root: tk.Tk, remote_version: str, notes: str) -> None:
     """Prompt the user and apply the update if they agree."""
     msg = f"Watermark Lab {remote_version} is available."
@@ -592,7 +454,6 @@ def _on_update_available(root: tk.Tk, remote_version: str, notes: str) -> None:
 
 if __name__ == "__main__":
     cleanup_old_exe()
-    _register_mei_cleanup()
     _show_splash(SPLASH_IMAGE, SPLASH_DURATION_MS)
     app = WatermarkApp()
     app.after(

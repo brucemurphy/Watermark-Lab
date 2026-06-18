@@ -93,45 +93,24 @@ a.binaries = [
 _TCL_TM_STRIP = {'http', 'tcltest', 'msgcat', 'platform'}
 
 def _keep_tcl(dst_path: str, src_path: str) -> bool:
-    """Return True if this Tcl/Tk data file should be kept."""
+    """Return True if this Tcl/Tk data file should be kept.
+
+    Keep the full _tcl_data and _tk_data trees — individual .tcl files
+    have deep internal dependencies that are not safe to whitelist.
+    Only strip: Tcl tzdata (timezone db) and unused .tm packages.
+    """
     parts = dst_path.replace('\\', '/').lower().split('/')
 
-    # --- _tcl_data (core Tcl library) ---
-    # Keep everything EXCEPT tzdata (timezone db) and unused .tm packages.
-    # The full Tcl library is required for initialisation — do not strip
-    # individual .tcl files or tcl_findLibrary / other core procs will fail.
-    if '_tcl_data' in parts:
-        if 'tzdata' in parts:
+    # Drop Tcl timezone database — continent folders like America/, Europe/
+    if 'tzdata' in parts:
+        return False
+
+    # Drop specific unused .tm packages
+    fname = os.path.basename(dst_path)
+    if fname.endswith('.tm'):
+        stem = fname.split('-')[0].lower()
+        if stem in _TCL_TM_STRIP:
             return False
-        fname = os.path.basename(dst_path)
-        if fname.endswith('.tm'):
-            stem = fname.split('-')[0].lower()
-            if stem in _TCL_TM_STRIP:
-                return False
-        return True
-
-    # --- _tk_data (Tk widget library) ---
-    # Keep ttk themes (needed for dark theme) and core widget scripts.
-    if '_tk_data' in parts:
-        if 'ttk' in parts:
-            if 'aquatheme.tcl' in dst_path.lower():
-                return False   # macOS only
-            return True
-        fname = os.path.basename(dst_path)
-        return fname in {
-            'tk.tcl', 'button.tcl', 'entry.tcl', 'scale.tcl',
-            'scrollbar.tcl', 'listbox.tcl', 'dialog.tcl',
-            'msgbox.tcl', 'panedwindow.tcl', 'tearoff.tcl', 'menu.tcl',
-        }
-
-    # --- tcl8 .tm packages ---
-    if 'tcl8' in parts:
-        fname = os.path.basename(dst_path)
-        if fname.endswith('.tm'):
-            stem = fname.split('-')[0].lower()
-            if stem in _TCL_TM_STRIP:
-                return False
-        return True
 
     return True
 

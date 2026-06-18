@@ -38,13 +38,10 @@ a = Analysis(
     excludes=[
         # Test / dev tools — never needed at runtime
         'unittest', 'doctest', 'pdb', 'pydoc',
-        # Truly unused: no sqlite, no multiprocessing, no XML, no spreadsheet
+        # Truly unused — no database, no multiprocessing, no XML
         'sqlite3', '_sqlite3',
         'multiprocessing',
         'xml.etree',
-        'csv',
-        'difflib',
-        'calendar',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

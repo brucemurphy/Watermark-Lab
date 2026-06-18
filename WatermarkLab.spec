@@ -26,9 +26,9 @@ a = Analysis(
     ],
     hiddenimports=[
         'packaging', 'packaging.version',
-        '_ffmpeg',
-        'PIL._imaging',      # Pillow core C extension — must be explicit
-        'PIL._imagingft',    # FreeType font renderer
+        '_ffmpeg', '_updater', '_version',
+        'PIL._imaging',
+        'PIL._imagingft',
         'PIL.Image',
         'PIL.ImageDraw',
         'PIL.ImageFont',

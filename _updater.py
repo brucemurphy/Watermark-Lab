@@ -211,6 +211,13 @@ def cleanup_old_exe():
     """Remove leftover update staging from previous runs."""
     if not getattr(sys, "frozen", False):
         return
-    stage = os.path.join(tempfile.gettempdir(), "WatermarkLab_update")
-    if os.path.isdir(stage):
-        shutil.rmtree(stage, ignore_errors=True)
+    app_dir  = os.path.dirname(os.path.abspath(sys.executable))
+    parent   = os.path.dirname(app_dir)
+    tmp_root = tempfile.gettempdir()
+    # Sweep both beside-the-app (legacy) and %TEMP% (current) locations
+    for base in (parent, tmp_root):
+        for name in ("WatermarkLab_new", "WatermarkLab_old",
+                     "WatermarkLab_update", "WatermarkLab_extract_tmp"):
+            d = os.path.join(base, name)
+            if os.path.isdir(d):
+                shutil.rmtree(d, ignore_errors=True)

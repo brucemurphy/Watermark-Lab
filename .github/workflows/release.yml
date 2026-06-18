@@ -63,16 +63,16 @@ jobs:
         shell: pwsh
 
       # -----------------------------------------------------------------------
-      # 8. Build the public download URL and write version.json
-      #    URL points at the GitHub Release asset so the blob just stores the
-      #    manifest; the binary is served by GitHub Releases CDN.
+      # 8. Write version.json
+      #    The download URL points at Azure Blob — updates are served
+      #    entirely from Azure. GitHub Release is for first-time installs.
       # -----------------------------------------------------------------------
       - name: Write version.json
         run: |
           $version = "${{ github.ref_name }}".TrimStart("v")
           $sha     = "${{ steps.sha.outputs.digest }}"
-          $url     = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/WatermarkLab.exe"
-          $json = @{
+          $url     = "https://watermarklab.blob.core.windows.net/releases/WatermarkLab.exe"
+          $json = [ordered]@{
             version = $version
             url     = $url
             sha256  = $sha
@@ -82,30 +82,32 @@ jobs:
         shell: pwsh
 
       # -----------------------------------------------------------------------
-      # 9. Upload version.json to Azure Blob Storage
-      #    az CLI is pre-installed on windows-latest runners, so we call it
-      #    directly via pwsh — no Linux-only action required.
+      # 9. Upload WatermarkLab.exe + version.json to Azure Blob Storage.
+      #    Both files land in the public "releases" container so the app
+      #    can fetch the manifest and download the update anonymously.
+      #    The connection string is assigned to a local variable first so
+      #    az CLI receives it as a single quoted argument (avoids the
+      #    "expected one argument" error caused by inline backtick expansion
+      #    of a string containing ; and = characters).
       # -----------------------------------------------------------------------
-      - name: Upload version.json to Azure Blob
+      - name: Upload to Azure Blob
         env:
           AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
         run: |
-          az storage container create `
-            --name releases `
-            --public-access blob `
-            --connection-string $env:AZURE_STORAGE_CONNECTION_STRING `
-            --output none
-          az storage blob upload `
-            --container-name releases `
-            --name version.json `
-            --file version.json `
-            --overwrite `
-            --content-type "application/json" `
-            --connection-string $env:AZURE_STORAGE_CONNECTION_STRING
+          $cs = $env:AZURE_STORAGE_CONNECTION_STRING
+          if (-not $cs) { throw "AZURE_STORAGE_CONNECTION_STRING secret is not set in this repository." }
+
+          az storage container create --name releases --public-access blob --connection-string "$cs" --output none
+
+          az storage blob upload --container-name releases --name WatermarkLab.exe --file dist\WatermarkLab.exe --overwrite --content-type "application/octet-stream" --connection-string "$cs"
+
+          az storage blob upload --container-name releases --name version.json --file version.json --overwrite --content-type "application/json" --connection-string "$cs"
         shell: pwsh
 
       # -----------------------------------------------------------------------
-      # 10. Create the GitHub Release and attach WatermarkLab.exe
+      # 10. Create the GitHub Release and attach WatermarkLab.exe.
+      #     This is the public-facing download page for first-time installs.
+      #     Existing users are updated automatically via Azure Blob above.
       # -----------------------------------------------------------------------
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

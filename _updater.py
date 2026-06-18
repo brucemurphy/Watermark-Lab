@@ -42,31 +42,53 @@ _UA      = f"WatermarkLab/{APP_VERSION} (update-check)"
 
 _SWAP_PS1 = """
 param($OldDir, $NewDir, $ExeName)
-$ErrorActionPreference = 'SilentlyContinue'
 
-# 1. Wait for the running process to exit (up to 60 s)
+# 1. Wait for WatermarkLab process to fully exit (up to 60s)
 for ($i = 0; $i -lt 60; $i++) {
     if (-not (Get-Process -Name 'WatermarkLab' -ErrorAction SilentlyContinue)) { break }
     Start-Sleep -Seconds 1
 }
+# Extra grace period — file handles linger briefly after process exit
+Start-Sleep -Seconds 2
 
-# 2. Rename current app folder to _old (backup)
+# 2. Remove any leftover backup from a previous update
 $backup = $OldDir + '_old'
 if (Test-Path -LiteralPath $backup) {
-    Remove-Item -LiteralPath $backup -Recurse -Force
+    Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
 }
-Move-Item -LiteralPath $OldDir -Destination $backup -Force
 
-# 3. Move new folder into place as the app folder
-Move-Item -LiteralPath $NewDir -Destination $OldDir -Force
+# 3. Rename the current app folder to _old — retry up to 10x because
+#    Windows can hold file handles open briefly after the process exits.
+#    If this fails, $OldDir still exists and Move-Item below would move
+#    $NewDir INSIDE it instead of replacing it — so we must abort.
+$renamed = $false
+for ($i = 0; $i -lt 10; $i++) {
+    try {
+        Move-Item -LiteralPath $OldDir -Destination $backup -Force -ErrorAction Stop
+        $renamed = $true
+        break
+    } catch {
+        Start-Sleep -Seconds 1
+    }
+}
+if (-not $renamed) {
+    # Cannot rename — abort cleanly, leave original installation intact
+    exit 1
+}
 
-# 4. Launch the new exe from its final location
+# 4. Move new folder into place as the app folder
+Move-Item -LiteralPath $NewDir -Destination $OldDir -Force -ErrorAction SilentlyContinue
+
+# 5. Launch the updated exe from its new final location
 $newExe = Join-Path $OldDir $ExeName
 Start-Process -FilePath $newExe
 
-# 5. Clean up old folder and this script
+# 6. Tidy up — remove backup and any leftover _new folder
 Start-Sleep -Seconds 5
 Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath $NewDir) {
+    Remove-Item -LiteralPath $NewDir -Recurse -Force -ErrorAction SilentlyContinue
+}
 Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 """
 
@@ -225,11 +247,12 @@ def apply_update(progress_cb=None):
 
 
 def cleanup_old_exe():
-    """Remove WatermarkLab_old left by a previous update swap."""
+    """Remove leftover update staging folders from previous runs."""
     if not getattr(sys, "frozen", False):
         return
     app_dir = os.path.dirname(os.path.abspath(sys.executable))
     parent  = os.path.dirname(app_dir)
-    old_dir = os.path.join(parent, "WatermarkLab_old")
-    if os.path.isdir(old_dir):
-        shutil.rmtree(old_dir, ignore_errors=True)
+    for name in ("WatermarkLab_old", "WatermarkLab_new", "WatermarkLab_extract_tmp"):
+        d = os.path.join(parent, name)
+        if os.path.isdir(d):
+            shutil.rmtree(d, ignore_errors=True)

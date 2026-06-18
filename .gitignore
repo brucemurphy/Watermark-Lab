@@ -32,3 +32,11 @@ Thumbs.db
 
 # Local-only dev reference (never pushed to GitHub)
 CHANGELOG.md
+
+# Local test media (never pushed to GitHub)
+*.mp4
+*.mov
+*.m4v
+*.mkv
+*.avi
+*.webm

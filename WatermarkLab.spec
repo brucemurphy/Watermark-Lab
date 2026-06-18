@@ -17,12 +17,17 @@ block_cipher = None
 
 a = Analysis(
     ['Watermark_Lab.pyw'],
-    pathex=[],
+    pathex=[SPECPATH],
     binaries=[],
     datas=[
-        ('SplashLab.png', '.'),
-        ('Watermark.png', '.'),
-        ('Watermark.ico', '.'),
+        ('SplashLab.png',   '.'),
+        ('Watermark.png',   '.'),
+        ('Watermark.ico',   '.'),
+        ('_updater.py',     '.'),
+        ('_ffmpeg.py',      '.'),
+        ('_version.py',     '.'),
+        ('_video.py',       '.'),
+        ('_powerpoint.py',  '.'),
     ],
     hiddenimports=[
         'packaging', 'packaging.version',

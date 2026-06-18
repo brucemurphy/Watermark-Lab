@@ -41,54 +41,29 @@ _TIMEOUT = 15
 _UA      = f"WatermarkLab/{APP_VERSION} (update-check)"
 
 _SWAP_PS1 = """
-param($OldDir, $NewDir, $ExeName)
+param($SrcDir, $DestDir)
 
-# 1. Wait for WatermarkLab process to fully exit (up to 60s)
+# 1. Wait for WatermarkLab to fully exit (up to 60s)
 for ($i = 0; $i -lt 60; $i++) {
     if (-not (Get-Process -Name 'WatermarkLab' -ErrorAction SilentlyContinue)) { break }
     Start-Sleep -Seconds 1
 }
-# Extra grace period — file handles linger briefly after process exit
 Start-Sleep -Seconds 2
 
-# 2. Remove any leftover backup from a previous update
-$backup = $OldDir + '_old'
-if (Test-Path -LiteralPath $backup) {
-    Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
-}
-
-# 3. Rename the current app folder to _old — retry up to 10x because
-#    Windows can hold file handles open briefly after the process exits.
-#    If this fails, $OldDir still exists and Move-Item below would move
-#    $NewDir INSIDE it instead of replacing it — so we must abort.
-$renamed = $false
-for ($i = 0; $i -lt 10; $i++) {
-    try {
-        Move-Item -LiteralPath $OldDir -Destination $backup -Force -ErrorAction Stop
-        $renamed = $true
-        break
-    } catch {
-        Start-Sleep -Seconds 1
-    }
-}
-if (-not $renamed) {
-    # Cannot rename — abort cleanly, leave original installation intact
+# 2. Overwrite the existing app folder in-place — no renaming, no sibling folders.
+#    robocopy copies every file from $SrcDir into $DestDir, overwriting existing files.
+#    Exit codes 0-7 are success for robocopy (8+ are errors).
+robocopy $SrcDir $DestDir /E /IS /IT /NFL /NDL /NJH /NJS /NC /NS /NP
+if ($LASTEXITCODE -ge 8) {
     exit 1
 }
 
-# 4. Move new folder into place as the app folder
-Move-Item -LiteralPath $NewDir -Destination $OldDir -Force -ErrorAction SilentlyContinue
+# 3. Launch the updated exe from the same folder it always lived in
+Start-Process -FilePath (Join-Path $DestDir 'WatermarkLab.exe')
 
-# 5. Launch the updated exe from its new final location
-$newExe = Join-Path $OldDir $ExeName
-Start-Process -FilePath $newExe
-
-# 6. Tidy up — remove backup and any leftover _new folder
-Start-Sleep -Seconds 5
-Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue
-if (Test-Path -LiteralPath $NewDir) {
-    Remove-Item -LiteralPath $NewDir -Recurse -Force -ErrorAction SilentlyContinue
-}
+# 4. Clean up temp source and this script
+Start-Sleep -Seconds 3
+Remove-Item -LiteralPath $SrcDir -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
 """
 
@@ -172,57 +147,44 @@ def check_for_update_async(tk_root, on_update_available):
 
 
 def apply_update(progress_cb=None):
-    """Download zip, extract in %TEMP%, then PS1 moves it into place after exit."""
+    """Download zip, extract to %TEMP%, robocopy over existing folder after exit."""
     if not getattr(sys, "frozen", False):
         raise RuntimeError("apply_update: not running as a frozen exe.")
 
-    exe_path = os.path.abspath(sys.executable)
-    app_dir  = os.path.dirname(exe_path)           # e.g. Desktop\WatermarkLab
-    parent   = os.path.dirname(app_dir)            # e.g. Desktop
+    app_dir  = os.path.dirname(os.path.abspath(sys.executable))
+    tmp_root = tempfile.gettempdir()
+    stage    = os.path.join(tmp_root, "WatermarkLab_update")
 
-    # All staging happens in %TEMP% — outside OneDrive, no sync locks.
-    tmp_root    = tempfile.gettempdir()
-    extract_tmp = os.path.join(tmp_root, "WatermarkLab_extract_tmp")
-    new_dir     = os.path.join(tmp_root, "WatermarkLab_new")
+    release = _fetch_latest_release()
+    zip_url = _zip_download_url(release)
 
-    release  = _fetch_latest_release()
-    zip_url  = _zip_download_url(release)
-
-    fd, zip_tmp = tempfile.mkstemp(suffix=".zip", prefix="wml_update_", dir=tmp_root)
+    fd, zip_tmp = tempfile.mkstemp(suffix=".zip", prefix="wml_", dir=tmp_root)
     os.close(fd)
 
     try:
         _stream_download(zip_url, zip_tmp, progress_cb)
 
-        # Clean up any leftover staging from a previous failed attempt
-        for d in (new_dir, extract_tmp):
-            if os.path.exists(d):
-                shutil.rmtree(d, ignore_errors=True)
+        if os.path.exists(stage):
+            shutil.rmtree(stage, ignore_errors=True)
+        os.makedirs(stage)
 
-        os.makedirs(extract_tmp, exist_ok=True)
         with zipfile.ZipFile(zip_tmp) as zf:
-            zf.extractall(extract_tmp)
+            zf.extractall(stage)
 
-        # Zip contains a single top-level folder — find it
-        entries = [
-            e for e in os.listdir(extract_tmp)
-            if os.path.isdir(os.path.join(extract_tmp, e))
-        ]
+        # Zip has one top-level folder — find it
+        entries = [e for e in os.listdir(stage)
+                   if os.path.isdir(os.path.join(stage, e))]
         if not entries:
-            raise RuntimeError("Zip contained no top-level folder after extraction.")
-
-        # Move extracted folder to new_dir (both in %TEMP%, same volume — fast)
-        shutil.move(os.path.join(extract_tmp, entries[0]), new_dir)
+            raise RuntimeError("No folder found in downloaded zip.")
+        src_dir = os.path.join(stage, entries[0])
 
     finally:
         try:
             os.remove(zip_tmp)
         except OSError:
             pass
-        if os.path.exists(extract_tmp):
-            shutil.rmtree(extract_tmp, ignore_errors=True)
 
-    # Write the PS1 swap script into %TEMP% as well
+    # Write PS1 to %TEMP%
     fd2, ps1 = tempfile.mkstemp(suffix=".ps1", prefix="wml_swap_", dir=tmp_root)
     os.close(fd2)
     with open(ps1, "w", encoding="utf-8") as f:
@@ -235,9 +197,8 @@ def apply_update(progress_cb=None):
         ["powershell.exe", "-NoProfile", "-NonInteractive",
          "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass",
          "-File", ps1,
-         "-OldDir",  app_dir,
-         "-NewDir",  new_dir,
-         "-ExeName", "WatermarkLab.exe"],
+         "-SrcDir",  src_dir,
+         "-DestDir", app_dir],
         creationflags=subprocess.CREATE_NO_WINDOW,
         startupinfo=si,
         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
@@ -247,15 +208,9 @@ def apply_update(progress_cb=None):
 
 
 def cleanup_old_exe():
-    """Remove leftover update staging folders from previous runs."""
+    """Remove leftover update staging from previous runs."""
     if not getattr(sys, "frozen", False):
         return
-    app_dir  = os.path.dirname(os.path.abspath(sys.executable))
-    parent   = os.path.dirname(app_dir)
-    tmp_root = tempfile.gettempdir()
-    # Clean up from OneDrive parent (legacy) and %TEMP% (current)
-    for folder in (parent, tmp_root):
-        for name in ("WatermarkLab_old", "WatermarkLab_new", "WatermarkLab_extract_tmp"):
-            d = os.path.join(folder, name)
-            if os.path.isdir(d):
-                shutil.rmtree(d, ignore_errors=True)
+    stage = os.path.join(tempfile.gettempdir(), "WatermarkLab_update")
+    if os.path.isdir(stage):
+        shutil.rmtree(stage, ignore_errors=True)

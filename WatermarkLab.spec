@@ -47,10 +47,15 @@ a = Analysis(
         # No XML
         'xml.etree',
         # numpy / scipy — pulled in by Pillow on Python 3.14 but not needed
-        # for PNG rendering (only _imaging + _imagingft are required)
         'numpy', 'scipy',
-        # Timezone data — not needed (we do no tz-aware datetime work)
+        # Timezone data
         'tzdata',
+        # Async — we use threads only
+        'asyncio', '_asyncio',
+        # Compression formats we never open (zipfile only needs zlib)
+        '_zstd',
+        # Queue — not used
+        'queue', '_queue',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -61,17 +66,21 @@ a = Analysis(
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 # ---------------------------------------------------------------------------
-# Strip unused Pillow binary extensions from the collected binaries.
-# _avif (~7.5 MB), _webp (~0.4 MB), _imagingcms (~0.3 MB) are format
-# decoders we never use — only _imaging (core) and _imagingft (FreeType)
-# are needed for PNG rendering and text drawing.
+# Strip unused binaries
 # ---------------------------------------------------------------------------
-_PILLOW_STRIP = {'_avif', '_webp', '_imagingcms'}
+_BIN_STRIP = {
+    # Pillow extensions we never call
+    '_avif', '_webp', '_imagingcms', '_imagingmath', '_imagingtk',
+    # win32ui / MFC — we use Tkinter, not the Pythonwin GUI toolkit
+    'win32ui', 'mfc140u',
+    # win32 internals not needed at runtime
+    'win32trace', '_win32sysloader',
+}
 a.binaries = [
     (name, src, kind) for name, src, kind in a.binaries
     if not any(
-        os.path.basename(src).lower().startswith(stub)
-        for stub in _PILLOW_STRIP
+        os.path.splitext(os.path.basename(src))[0].lower().startswith(stub)
+        for stub in _BIN_STRIP
     )
 ]
 
@@ -87,21 +96,31 @@ _TCL_KEEP = {
     'msgbox.tcl', 'panedwindow.tcl', 'tearoff.tcl', 'menu.tcl',
 }
 
+# Tcl .tm packages we don't need
+_TCL_TM_STRIP = {'http', 'tcltest', 'msgcat', 'platform'}
+
 def _keep_tcl(dst_path: str, src_path: str) -> bool:
     """Return True if this Tcl/Tk data file should be kept."""
-    # Check destination path (what ends up in the output folder)
     parts = dst_path.replace('\\', '/').lower().split('/')
     # Always keep files not in the tcl/tk data trees
-    if '_tcl_data' not in parts and '_tk_data' not in parts:
+    if '_tcl_data' not in parts and '_tk_data' not in parts and 'tcl8' not in parts:
         return True
     # Drop the entire Tcl tzdata tree (America, Europe, Asia etc.)
     if 'tzdata' in parts:
+        return False
+    # Drop .tm package files we don't use
+    fname = os.path.basename(dst_path)
+    if fname.endswith('.tm'):
+        stem = fname.split('-')[0].lower()  # e.g. "http-2.9.8.tm" -> "http"
+        if stem in _TCL_TM_STRIP:
+            return False
+    # Drop macOS-only Aqua theme
+    if 'aquatheme.tcl' in dst_path.lower():
         return False
     # Keep ttk theme directory entirely
     if 'ttk' in parts:
         return True
     # Keep individual core files
-    fname = os.path.basename(dst_path)
     if fname in _TCL_KEEP:
         return True
     return False

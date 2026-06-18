@@ -3,61 +3,35 @@
 # Build:   pyinstaller WatermarkLab.spec
 # Output:  dist\WatermarkLab.exe   (single, self-contained, portable)
 #
-# Size strategy (target: <60 MB):
-#   - ffmpeg is supplied by imageio-ffmpeg (~30 MB minimal build).
-#     No user-supplied ffmpeg.exe / ffprobe.exe needed at build time.
-#   - Unused Pillow binary extensions (_avif, _webp, _imagingcms) are
-#     stripped from the binary list after analysis (~10 MB saving).
+# Size strategy:
+#   - ffmpeg is NOT bundled. On first video use the app downloads the latest
+#     minimal ffmpeg build from GitHub (GyanD/codexffmpeg) and caches it in
+#     %LOCALAPPDATA%\WatermarkLab\ffmpeg.exe. Subsequent runs use the cache.
+#   - Unused Pillow binary extensions (_avif, _webp, _imagingcms) are stripped.
 #   - Heavy stdlib modules that are never imported are excluded.
-#   - UPX compression is intentionally left OFF: it triggers false-positive
-#     AV alerts and slows startup without meaningful size gains on already-
-#     compressed data.
 #
 # Portability:
-#   runtime_tmpdir='.' extracts the _MEI<pid> folder next to the exe instead
-#   of %TEMP%, so it works from USB sticks, network shares, and machines
-#   running Windows Application Control / WDAC.
+#   runtime_tmpdir='.' extracts the _MEI<pid> folder next to the exe so it
+#   works from USB sticks, network shares, and WDAC-locked machines.
 
 import os
-import sys
-
-# ---------------------------------------------------------------------------
-# Locate the imageio-ffmpeg binary at spec-evaluation time so PyInstaller
-# can embed it. Falls back to a user-supplied ffmpeg.exe beside the spec.
-# ---------------------------------------------------------------------------
-try:
-    import imageio_ffmpeg
-    _ffmpeg_src = imageio_ffmpeg.get_ffmpeg_exe()
-except Exception:
-    _ffmpeg_src = None
-
-if not _ffmpeg_src or not os.path.isfile(_ffmpeg_src):
-    _ffmpeg_src = os.path.join(SPECPATH, "ffmpeg.exe")
-
-if not os.path.isfile(_ffmpeg_src):
-    raise FileNotFoundError(
-        "ffmpeg not found. Run: pip install imageio-ffmpeg\n"
-        "or place ffmpeg.exe next to WatermarkLab.spec."
-    )
 
 block_cipher = None
 
-# Pillow extensions we actively use: _imaging (core), _imagingft (FreeType fonts).
+# Pillow extensions we actively use: _imaging (core), _imagingft (FreeType).
 # _avif (~7.5 MB), _webp (~0.4 MB), _imagingcms (~0.3 MB) are unused.
 _PILLOW_STRIP = {"_avif", "_webp", "_imagingcms"}
 
 a = Analysis(
     ['Watermark_Lab.pyw'],
     pathex=[],
-    binaries=[
-        (_ffmpeg_src, '.'),
-    ],
+    binaries=[],
     datas=[
         ('SplashLab.png', '.'),
         ('Watermark.png', '.'),
         ('Watermark.ico', '.'),
     ],
-    hiddenimports=['packaging', 'packaging.version', 'imageio_ffmpeg'],
+    hiddenimports=['packaging', 'packaging.version', '_ffmpeg'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

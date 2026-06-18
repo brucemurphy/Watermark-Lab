@@ -6,15 +6,16 @@ re-encoded (libx264, CRF 20). Audio is stream-copied to preserve quality.
 """
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
+import shutil
 
 from PIL import Image, ImageDraw, ImageFont
 
+from _ffmpeg import get_ffmpeg_exe, FfmpegNotReadyError  # noqa: F401 (re-exported)
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-FFMPEG_EXE = os.path.join(SCRIPT_DIR, "ffmpeg.exe")
 
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"}
 
@@ -36,35 +37,8 @@ def _next_available_video(base, suffix, ext):
 
 
 def _resolve_ffmpeg() -> str:
-    """Return the path to a usable ffmpeg binary.
-
-    Resolution order:
-    1. imageio-ffmpeg bundled binary (preferred — minimal ~30 MB build).
-    2. ffmpeg.exe sitting next to this script (user-supplied legacy location).
-    3. ffmpeg on PATH.
-    """
-    # 1. imageio-ffmpeg
-    try:
-        import imageio_ffmpeg
-        exe = imageio_ffmpeg.get_ffmpeg_exe()
-        if exe and os.path.isfile(exe):
-            return exe
-    except Exception:
-        pass
-
-    # 2. Script-directory fallback
-    if os.path.isfile(FFMPEG_EXE):
-        return FFMPEG_EXE
-
-    # 3. PATH
-    on_path = shutil.which("ffmpeg")
-    if on_path:
-        return on_path
-
-    raise FileNotFoundError(
-        "ffmpeg not found. Install imageio-ffmpeg (pip install imageio-ffmpeg) "
-        "or place ffmpeg.exe next to this script, or add ffmpeg to PATH."
-    )
+    """Return the path to the cached ffmpeg binary via _ffmpeg module."""
+    return get_ffmpeg_exe()
 
 
 def _probe_video(ffmpeg: str, video_path: str):

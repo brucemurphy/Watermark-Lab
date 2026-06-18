@@ -14,6 +14,7 @@ from _powerpoint import add_watermark
 from _video import add_video_watermark, is_video_file, VIDEO_EXTS
 from _version import APP_VERSION
 from _updater import check_for_update_async, apply_update, cleanup_old_exe
+from _ffmpeg import is_ffmpeg_cached, download_ffmpeg, FfmpegNotReadyError
 
 PPT_EXTS = {".pptx", ".ppt"}
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -277,10 +278,104 @@ class WatermarkApp(tk.Tk):
                         progress_cb=self._on_progress,
                     )
                 self.after(0, self._on_done, None, output_path)
+            except FfmpegNotReadyError:
+                self.after(0, self._prompt_ffmpeg_download, path, text, color_rgb, transparency)
             except Exception as e:  # noqa: BLE001
                 self.after(0, self._on_done, e, None)
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _prompt_ffmpeg_download(self, path, text, color_rgb, transparency):
+        """Ask the user to download ffmpeg, then retry the video job."""
+        self.run_btn.configure(state="normal")
+        self.configure(cursor="")
+        if not messagebox.askyesno(
+            "ffmpeg required",
+            "Video watermarking needs ffmpeg, which hasn't been downloaded yet.\n\n"
+            "It will be downloaded once (~30 MB) from GitHub and saved to:\n"
+            f"  %LOCALAPPDATA%\\WatermarkLab\\ffmpeg.exe\n\n"
+            "Download now?",
+            parent=self,
+        ):
+            self.status_var.set("Video job cancelled — ffmpeg not downloaded.")
+            return
+        self._run_ffmpeg_download(path, text, color_rgb, transparency)
+
+    def _run_ffmpeg_download(self, path, text, color_rgb, transparency):
+        """Show a progress dialog, download ffmpeg, then kick off the video job."""
+        dlg = tk.Toplevel(self)
+        dlg.title("Downloading ffmpeg…")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.configure(bg=DARK_BG)
+        try:
+            dlg.iconbitmap(ICON_ICO)
+        except Exception:
+            pass
+
+        ttk.Label(dlg, text="Downloading ffmpeg — please wait…").pack(padx=20, pady=(16, 4))
+        bar = ttk.Progressbar(dlg, length=340, mode="determinate")
+        bar.pack(padx=20, pady=4)
+        lbl = ttk.Label(dlg, text="Starting…", style="Muted.TLabel")
+        lbl.pack(padx=20, pady=(4, 16))
+        dlg.update_idletasks()
+        # Centre over the main window
+        dlg.geometry(
+            f"+{self.winfo_x() + (self.winfo_width() - dlg.winfo_reqwidth()) // 2}"
+            f"+{self.winfo_y() + (self.winfo_height() - dlg.winfo_reqheight()) // 2}"
+        )
+
+        def _progress(done, total):
+            if total:
+                pct = done * 100 // total
+                mb_done = done / 1_048_576
+                mb_total = total / 1_048_576
+                self.after(0, lambda p=pct, d=mb_done, t=mb_total: (
+                    bar.configure(value=p),
+                    lbl.configure(text=f"{d:.1f} / {t:.1f} MB"),
+                ))
+            else:
+                mb_done = done / 1_048_576
+                self.after(0, lambda d=mb_done: lbl.configure(text=f"{d:.1f} MB downloaded…"))
+
+        def _worker():
+            try:
+                download_ffmpeg(progress_cb=_progress)
+                self.after(0, _on_done, None)
+            except Exception as exc:
+                self.after(0, _on_done, exc)
+
+        def _on_done(err):
+            dlg.destroy()
+            if err:
+                messagebox.showerror(
+                    "Download failed",
+                    f"Could not download ffmpeg:\n{err}\n\n"
+                    "Download it manually from https://www.gyan.dev/ffmpeg/builds/ "
+                    "and place ffmpeg.exe in %LOCALAPPDATA%\\WatermarkLab\\",
+                    parent=self,
+                )
+                self.status_var.set("ffmpeg download failed.")
+                return
+            self.status_var.set("ffmpeg downloaded. Starting video job…")
+            self.run_btn.configure(state="disabled")
+            self.configure(cursor="watch")
+
+            def _video_worker():
+                try:
+                    output_path = add_video_watermark(
+                        path, text,
+                        color_rgb=color_rgb,
+                        transparency=transparency,
+                        progress_cb=self._on_progress,
+                    )
+                    self.after(0, self._on_done, None, output_path)
+                except Exception as e:
+                    self.after(0, self._on_done, e, None)
+
+            threading.Thread(target=_video_worker, daemon=True).start()
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _on_progress(self, seconds_done, _total):
         msg = f"Encoding… {seconds_done:0.1f}s processed"

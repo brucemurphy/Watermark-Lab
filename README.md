@@ -26,22 +26,20 @@ It ships as a dark-themed Tkinter GUI, drives PowerPoint via COM for native slid
 ### Python packages
 
 ```powershell
-pip install pywin32 Pillow packaging imageio-ffmpeg
+pip install pywin32 Pillow packaging
 ```
 
 ---
 
 ## FFmpeg setup
 
-FFmpeg is bundled automatically via the **`imageio-ffmpeg`** Python package — no manual download or PATH configuration needed.
+No manual setup required. On the **first time you watermark a video**, the app will prompt you to download ffmpeg automatically. It fetches the latest minimal build from [GyanD/codexffmpeg](https://github.com/GyanD/codexffmpeg/releases) (~30 MB) and saves it to:
 
-```powershell
-pip install imageio-ffmpeg
+```
+%LOCALAPPDATA%\WatermarkLab\ffmpeg.exe
 ```
 
-The package includes a minimal, purpose-built ffmpeg binary (~30 MB) and exposes it to the app at runtime. When building the portable exe, PyInstaller picks up and embeds that same binary automatically.
-
-> **Manual override (advanced):** if you need a specific ffmpeg build, place `ffmpeg.exe` next to `Watermark_Lab.pyw`. The app checks the script directory first and falls back to `imageio-ffmpeg`, then `PATH`.
+This cache persists across app updates so the download only happens once. PowerPoint watermarking works without ffmpeg at all.
 
 ---
 
@@ -52,9 +50,9 @@ The package includes a minimal, purpose-built ffmpeg binary (~30 MB) and exposes
 | [Watermark_Lab.pyw](Watermark_Lab.pyw) | Tkinter GUI entry point |
 | [_powerpoint.py](_powerpoint.py) | PowerPoint COM watermarking |
 | [_video.py](_video.py) | Video watermarking via ffmpeg + Pillow |
+| [_ffmpeg.py](_ffmpeg.py) | ffmpeg cache + on-demand download from GitHub |
 | [_version.py](_version.py) | App version constant (stamped by CI) |
-| [_updater.py](_updater.py) | Auto-update engine |
-| `ffmpeg` (via `imageio-ffmpeg`) | Bundled automatically — no manual download |
+| [_updater.py](_updater.py) | Auto-update via GitHub Releases API |
 | `Watermark.ico` / `Watermark.png` | Window icon |
 | `SplashLab.png` | Splash screen shown at launch |
 | [WatermarkLab.spec](WatermarkLab.spec) | PyInstaller spec for the portable single-file build |
@@ -77,7 +75,7 @@ Extracting beside the exe (rather than in `%TEMP%`) is what keeps it portable an
 2. Install the build tooling:
 
    ```powershell
-   pip install pyinstaller pywin32 Pillow packaging imageio-ffmpeg
+   pip install pyinstaller pywin32 Pillow packaging
    ```
 
 3. Build the executable:
@@ -90,9 +88,10 @@ Extracting beside the exe (rather than in `%TEMP%`) is what keeps it portable an
 
 ### What gets embedded
 
-- Application code: `Watermark_Lab.pyw`, `_powerpoint.py`, `_video.py`, `_version.py`, `_updater.py`
+- Application code: `Watermark_Lab.pyw`, `_powerpoint.py`, `_video.py`, `_ffmpeg.py`, `_version.py`, `_updater.py`
 - Image assets: `SplashLab.png`, `Watermark.png`, `Watermark.ico`
-- FFmpeg binary: supplied by `imageio-ffmpeg` (~30 MB minimal build, embedded automatically)
+
+ffmpeg is **not embedded** — it is downloaded on first video use and cached in `%LOCALAPPDATA%\WatermarkLab\`.
 
 The resulting exe is windowed (`console=False`) and uses `Watermark.ico` as its taskbar / file icon.
 
@@ -166,64 +165,38 @@ This repository does **not** redistribute any third-party binaries. The followin
 
 ## Release & Auto-Update
 
-Watermark Lab uses a **GitHub Actions → Azure Blob** hybrid pipeline (Option C).
+Watermark Lab uses **GitHub Releases** as the single source of truth for both distribution and updates. No external services or secrets required.
 
 ### How releases are published
 
-1. Push a version tag (e.g. `git tag v1.2.0 && git push origin v1.2.0`).
+1. Push a version tag:
+   ```powershell
+   git tag v1.2.0
+   git push origin v1.2.0
+   ```
 2. The [release workflow](.github/workflows/release.yml) runs automatically:
    - Stamps `_version.py` with the tag version.
-   - Downloads FFmpeg and builds `WatermarkLab.exe` via PyInstaller.
-   - Computes a SHA-256 digest of the exe.
-   - Writes `version.json` (version, download URL, SHA-256, release notes).
-   - Uploads `version.json` to the `releases` container in Azure Blob Storage.
+   - Builds `WatermarkLab.exe` via PyInstaller.
    - Creates a GitHub Release and attaches `WatermarkLab.exe` as a release asset.
-
-### `version.json` schema
-
-```json
-{
-  "version": "1.2.0",
-  "url":     "https://github.com/brucemurphy/Watermark-Lab/releases/download/v1.2.0/WatermarkLab.exe",
-  "sha256":  "<hex>",
-  "notes":   "Optional plain-text release notes shown in the update prompt."
-}
-```
-
-The live copy lives at:
-```
-https://watermarklab.blob.core.windows.net/releases/version.json
-```
 
 ### How the in-app update works
 
-3 seconds after launch the app silently fetches `version.json`. If the remote
-version is newer than the running build it prompts the user. On confirmation:
+3 seconds after launch the app silently calls the GitHub Releases API:
+```
+https://api.github.com/repos/brucemurphy/Watermark-Lab/releases/latest
+```
+If the `tag_name` version is newer than the running build, the user is prompted. On confirmation:
 
-1. Downloads the new exe to `WatermarkLab.exe.tmp` (beside the running exe).
-2. Verifies the SHA-256.
-3. Renames the running exe to `WatermarkLab.exe.old`.
-4. Moves the `.tmp` file to `WatermarkLab.exe`.
-5. Launches the new exe and exits.
+1. Streams the new `WatermarkLab.exe` from GitHub's CDN to `WatermarkLab.exe.tmp`.
+2. Renames the running exe to `WatermarkLab.exe.old`.
+3. Moves `.tmp` to `WatermarkLab.exe`.
+4. Launches the new exe and exits.
 
-The `.old` file is removed on the next clean startup. The update is a no-op
-when running from Python source (`python Watermark_Lab.pyw`).
+The `.old` file is cleaned up on the next startup. Update checks are a no-op when running from Python source.
 
-### One-time GitHub repository setup
+### No secrets or external services needed
 
-Add the following secret in **Settings → Secrets and variables → Actions**:
-
-| Secret name | Value |
-|---|---|
-| `AZURE_STORAGE_CONNECTION_STRING` | The connection string for the `watermarklab` storage account |
-
-The workflow creates the `releases` blob container automatically on the first
-run and sets it to blob-level public access (anonymous reads for `version.json`
-and the future direct-from-blob download scenario).
-
-> **Security note** — never commit the storage account key or connection string
-> to the repository. Keep it only in the GitHub secret above. Rotate the key in
-> the Azure Portal if it is ever exposed.
+GitHub Releases are public. No Azure storage account, no manifest file, no API keys.
 
 ---
 

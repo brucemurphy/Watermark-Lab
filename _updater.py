@@ -5,15 +5,18 @@ How it works
 On each launch the GUI calls ``check_for_update_async`` which spins up a
 background thread that:
 
-1. Fetches ``version.json`` from the public Azure Blob URL.
-2. Compares the remote version against APP_VERSION using PEP-440 semantics.
-3. If a newer build exists, invokes the supplied ``on_update_available``
-   callback on the calling thread (via tkinter's ``after``).
-4. When the user confirms, ``apply_update`` downloads the new exe, swaps it
-   in-place, and restarts the process.
+1. Calls the GitHub Releases API to find the latest published release.
+2. Compares the remote version tag against APP_VERSION (PEP-440).
+3. If a newer build is available, invokes ``on_update_available`` on the
+   GUI thread via tkinter's ``after``.
+4. When the user confirms, ``apply_update`` streams the new exe from
+   GitHub's CDN, swaps in-place, and restarts.
 
-The module is a no-op when the app is running from Python source (i.e.
-``sys.frozen`` is not set), so developers are never bothered by update prompts.
+GitHub is the single source of truth — no external manifest file or cloud
+storage account is required.
+
+The module is a no-op when running from Python source (``sys.frozen`` not
+set), so developers are never interrupted by update prompts.
 """
 import hashlib
 import json
@@ -21,57 +24,65 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import urllib.request
 from typing import Callable, Optional
+
 from packaging.version import Version
 
 from _version import APP_VERSION
 
 # ---------------------------------------------------------------------------
-# Public constants — must match the container / blob names created by CI.
+# GitHub repository coordinates
 # ---------------------------------------------------------------------------
-STORAGE_ACCOUNT = "watermarklab"
-CONTAINER       = "releases"
-VERSION_BLOB    = "version.json"
-VERSION_URL     = (
-	f"https://{STORAGE_ACCOUNT}.blob.core.windows.net/{CONTAINER}/{VERSION_BLOB}"
-)
+GITHUB_REPO      = "brucemurphy/Watermark-Lab"
+RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+EXE_ASSET_NAME   = "WatermarkLab.exe"
 
-_TIMEOUT = 10  # seconds for network requests
+_TIMEOUT = 15
+_UA      = f"WatermarkLab/{APP_VERSION} (update-check)"
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _fetch_version_manifest() -> dict:
-	"""Download and parse version.json from blob storage."""
-	with urllib.request.urlopen(VERSION_URL, timeout=_TIMEOUT) as resp:
+def _api_get(url: str) -> dict:
+	req = urllib.request.Request(url, headers={"User-Agent": _UA})
+	with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
 		return json.loads(resp.read().decode("utf-8"))
 
 
-def _is_newer(remote: str) -> bool:
+def _fetch_latest_release() -> dict:
+	return _api_get(RELEASES_API_URL)
+
+
+def _exe_download_url(release: dict) -> str:
+	for asset in release.get("assets", []):
+		if asset.get("name", "").lower() == EXE_ASSET_NAME.lower():
+			return asset["browser_download_url"]
+	raise RuntimeError(
+		f"Release {release.get('tag_name')} does not contain {EXE_ASSET_NAME}.\n"
+		"The CI build may still be running — try again in a few minutes."
+	)
+
+
+def _is_newer(remote_tag: str) -> bool:
 	try:
-		return Version(remote) > Version(APP_VERSION)
+		return Version(remote_tag.lstrip("v")) > Version(APP_VERSION)
 	except Exception:
 		return False
 
 
-def _sha256_file(path: str) -> str:
-	h = hashlib.sha256()
-	with open(path, "rb") as fh:
-		for chunk in iter(lambda: fh.read(65536), b""):
-			h.update(chunk)
-	return h.hexdigest()
-
-
-def _download_exe(url: str, dest: str, progress_cb: Optional[Callable] = None) -> None:
-	"""Stream-download *url* to *dest*, calling progress_cb(bytes_done, total)."""
-	with urllib.request.urlopen(url, timeout=60) as resp:
+def _stream_download(
+	url: str,
+	dest: str,
+	progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
+) -> None:
+	req = urllib.request.Request(url, headers={"User-Agent": _UA})
+	with urllib.request.urlopen(req, timeout=60) as resp:
 		total = int(resp.headers.get("Content-Length", 0)) or None
-		done = 0
+		done  = 0
 		with open(dest, "wb") as fh:
 			while True:
 				chunk = resp.read(65536)
@@ -91,74 +102,50 @@ def check_for_update_async(
 	tk_root,
 	on_update_available: Callable[[str, str], None],
 ) -> None:
-	"""Spawn a daemon thread to check for updates.
+	"""Spawn a daemon thread to check GitHub for a newer release.
 
-	``on_update_available(remote_version, release_notes)`` is called via
-	``tk_root.after`` so it runs on the main/GUI thread.
+	``on_update_available(remote_version, release_notes)`` is scheduled on
+	the GUI thread via ``tk_root.after`` if a newer build is found.
 
-	Does nothing when running from Python source (not a frozen exe).
+	Silent no-op when running from source, network unavailable, or rate-limited.
 	"""
 	if not getattr(sys, "frozen", False):
-		return  # running from source — skip update check
+		return
 
 	def _worker():
 		try:
-			manifest = _fetch_version_manifest()
-			remote = manifest.get("version", "")
-			if _is_newer(remote):
-				notes = manifest.get("notes", "")
-				tk_root.after(0, lambda: on_update_available(remote, notes))
+			release = _fetch_latest_release()
+			tag     = release.get("tag_name", "")
+			if _is_newer(tag):
+				notes   = release.get("body", "").strip()
+				version = tag.lstrip("v")
+				tk_root.after(0, lambda: on_update_available(version, notes))
 		except Exception:
-			pass  # network unavailable or malformed manifest — silent fail
+			pass
 
 	threading.Thread(target=_worker, daemon=True).start()
 
 
 def apply_update(
-	manifest_url: str = VERSION_URL,
-	progress_cb: Optional[Callable] = None,
+	progress_cb: Optional[Callable[[int, Optional[int]], None]] = None,
 ) -> None:
-	"""Download the new exe, swap it in-place, and restart.
-
-	Sequence
-	--------
-	1. Fetch version.json to get the download URL and expected SHA-256.
-	2. Download the new exe to a sibling ``.tmp`` file.
-	3. Verify SHA-256 if the manifest supplies one.
-	4. Rename the running exe to ``.old`` (Windows lets you rename an
-	   open file; it is deleted on next clean run by ``_cleanup_old``).
-	5. Move the ``.tmp`` file to the original exe name.
-	6. Launch the new exe and exit this process.
+	"""Download the latest GitHub release exe, swap in-place, and restart.
 
 	Raises ``RuntimeError`` on any failure so the caller can show an error.
+	On failure the original exe is restored if possible.
 	"""
 	if not getattr(sys, "frozen", False):
-		raise RuntimeError("apply_update called outside of a frozen exe — nothing to do.")
+		raise RuntimeError("apply_update: not running as a frozen exe.")
 
-	manifest = _fetch_version_manifest()
-	exe_url: str = manifest.get("url", "")
-	expected_sha: str = manifest.get("sha256", "")
-
-	if not exe_url:
-		raise RuntimeError("version.json is missing the 'url' field.")
-
+	release     = _fetch_latest_release()
+	exe_url     = _exe_download_url(release)
 	current_exe = sys.executable
 	tmp_exe     = current_exe + ".tmp"
 	old_exe     = current_exe + ".old"
 
 	try:
-		_download_exe(exe_url, tmp_exe, progress_cb)
+		_stream_download(exe_url, tmp_exe, progress_cb)
 
-		if expected_sha:
-			actual = _sha256_file(tmp_exe)
-			if actual.lower() != expected_sha.lower():
-				raise RuntimeError(
-					f"SHA-256 mismatch after download.\n"
-					f"  expected: {expected_sha}\n"
-					f"  actual:   {actual}"
-				)
-
-		# Remove a leftover .old from a previous update, if any.
 		if os.path.exists(old_exe):
 			try:
 				os.remove(old_exe)
@@ -168,12 +155,10 @@ def apply_update(
 		os.rename(current_exe, old_exe)
 		shutil.move(tmp_exe, current_exe)
 
-		# Launch the updated exe and exit cleanly.
 		subprocess.Popen([current_exe], close_fds=True)
 		sys.exit(0)
 
 	except Exception:
-		# Roll back: restore the original if the rename succeeded.
 		if not os.path.exists(current_exe) and os.path.exists(old_exe):
 			try:
 				os.rename(old_exe, current_exe)
@@ -188,11 +173,7 @@ def apply_update(
 
 
 def cleanup_old_exe() -> None:
-	"""Remove the ``<exe>.old`` leftover from a previous update, if present.
-
-	Call once at startup so stale files do not accumulate.
-	Does nothing when running from source.
-	"""
+	"""Remove the ``<exe>.old`` leftover from a previous update if present."""
 	if not getattr(sys, "frozen", False):
 		return
 	old_exe = sys.executable + ".old"

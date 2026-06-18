@@ -50,7 +50,7 @@ for ($i = 0; $i -lt 60; $i++) {
 }
 Start-Sleep -Seconds 2
 
-# 2. Overwrite the existing app folder in-place — no renaming, no sibling folders.
+# 2. Overwrite the existing app folder in-place - no renaming, no sibling folders.
 #    robocopy copies every file from $SrcDir into $DestDir, overwriting existing files.
 #    Exit codes 0-7 are success for robocopy (8+ are errors).
 robocopy $SrcDir $DestDir /E /IS /IT /NFL /NDL /NJH /NJS /NC /NS /NP
@@ -171,7 +171,7 @@ def apply_update(progress_cb=None):
         with zipfile.ZipFile(zip_tmp) as zf:
             zf.extractall(stage)
 
-        # Zip has one top-level folder — find it
+        # Zip has one top-level folder - find it
         entries = [e for e in os.listdir(stage)
                    if os.path.isdir(os.path.join(stage, e))]
         if not entries:

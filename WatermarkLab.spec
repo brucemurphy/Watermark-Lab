@@ -20,14 +20,9 @@ a = Analysis(
     pathex=[SPECPATH],
     binaries=[],
     datas=[
-        ('SplashLab.png',   '.'),
-        ('Watermark.png',   '.'),
-        ('Watermark.ico',   '.'),
-        ('_updater.py',     '.'),
-        ('_ffmpeg.py',      '.'),
-        ('_version.py',     '.'),
-        ('_video.py',       '.'),
-        ('_powerpoint.py',  '.'),
+        ('SplashLab.png',  '.'),
+        ('Watermark.png',  '.'),
+        ('Watermark.ico',  '.'),
     ],
     hiddenimports=[
         'packaging', 'packaging.version',

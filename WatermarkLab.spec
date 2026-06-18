@@ -38,10 +38,19 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
+        # Dev tools
         'unittest', 'doctest', 'pdb', 'pydoc',
+        # No database
         'sqlite3', '_sqlite3',
+        # No multiprocessing
         'multiprocessing',
+        # No XML
         'xml.etree',
+        # numpy / scipy — pulled in by Pillow on Python 3.14 but not needed
+        # for PNG rendering (only _imaging + _imagingft are required)
+        'numpy', 'scipy',
+        # Timezone data — not needed (we do no tz-aware datetime work)
+        'tzdata',
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -50,6 +59,51 @@ a = Analysis(
 )
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+# ---------------------------------------------------------------------------
+# Strip unused Pillow binary extensions from the collected binaries.
+# _avif (~7.5 MB), _webp (~0.4 MB), _imagingcms (~0.3 MB) are format
+# decoders we never use — only _imaging (core) and _imagingft (FreeType)
+# are needed for PNG rendering and text drawing.
+# ---------------------------------------------------------------------------
+_PILLOW_STRIP = {'_avif', '_webp', '_imagingcms'}
+a.binaries = [
+    (name, src, kind) for name, src, kind in a.binaries
+    if not any(
+        os.path.basename(src).lower().startswith(stub)
+        for stub in _PILLOW_STRIP
+    )
+]
+
+# ---------------------------------------------------------------------------
+# Strip the bulk of the Tcl/Tk data tree.  The app uses dark-themed ttk
+# widgets and a PNG splash — it needs core Tk, ttk themes, and the default
+# encoding.  Everything else (locales, demos, extra encodings, old http
+# packages, opt packages) is dead weight.
+# ---------------------------------------------------------------------------
+_TCL_KEEP = {
+    'init.tcl', 'tk.tcl', 'ttk', 'button.tcl', 'entry.tcl',
+    'scale.tcl', 'scrollbar.tcl', 'listbox.tcl', 'dialog.tcl',
+    'msgbox.tcl', 'panedwindow.tcl', 'tearoff.tcl', 'menu.tcl',
+}
+
+def _keep_tcl(src_path: str) -> bool:
+    """Return True if this Tcl/Tk data file should be kept."""
+    parts = src_path.replace('\\', '/').lower().split('/')
+    # Always keep files not in the tcl/tk data trees
+    if '_tcl_data' not in parts and '_tk_data' not in parts:
+        return True
+    # Keep ttk theme directory entirely
+    if 'ttk' in parts:
+        return True
+    # Keep individual core files
+    fname = os.path.basename(src_path)
+    if fname in _TCL_KEEP:
+        return True
+    # Drop everything else (encodings, msgs, demos, http, opt packages)
+    return False
+
+a.datas = [(dst, src, kind) for dst, src, kind in a.datas if _keep_tcl(src)]
 
 exe = EXE(
     pyz,

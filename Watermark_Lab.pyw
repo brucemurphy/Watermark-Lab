@@ -189,31 +189,31 @@ class WatermarkApp(tk.Tk):
         # Action buttons
         btns = ttk.Frame(frm)
         btns.grid(row=5, column=0, columnspan=3, pady=(12, 4))
-        self.run_btn = ttk.Button(
-            btns, text="Apply Watermark", command=self._run, style="Accent.TButton"
-        )
-        self.run_btn.pack(side="left", padx=6)
-        ttk.Button(btns, text="Quit", command=self.destroy).pack(side="left", padx=6)
 
-        # Status row: folder button (hidden until done) + status label
-        status_row = ttk.Frame(frm)
-        status_row.grid(row=6, column=0, columnspan=3, sticky="w", **pad)
-
+        # Folder button — shown in place of the squiggle after a job completes
         self.folder_btn = tk.Button(
-            status_row,
-            text="\U0001F4C2",          # folder icon emoji
+            btns,
+            text="\U0001F4C2",
             font=("Segoe UI Emoji", 14),
             bg=DARK_BG, fg=DARK_FG,
             activebackground=DARK_BORDER, activeforeground=DARK_FG,
             relief="flat", bd=0, cursor="hand2",
             command=self._open_output_folder,
         )
-        # Hidden until a job succeeds
-        self.folder_btn.pack(side="left", padx=(0, 6))
-        self.folder_btn.pack_forget()
+        self.folder_btn.pack(side="left", padx=(0, 2))
+        self.folder_btn.pack_forget()  # hidden until a job succeeds
 
+        self.run_btn = ttk.Button(
+            btns, text="Apply Watermark", command=self._run, style="Accent.TButton"
+        )
+        self.run_btn.pack(side="left", padx=6)
+        ttk.Button(btns, text="Quit", command=self.destroy).pack(side="left", padx=6)
+
+        # Status
         self.status_var = tk.StringVar(value="Ready.")
-        ttk.Label(status_row, textvariable=self.status_var, style="Muted.TLabel").pack(side="left")
+        ttk.Label(frm, textvariable=self.status_var, style="Muted.TLabel").grid(
+            row=6, column=0, columnspan=3, sticky="w", **pad
+        )
 
     def _open_output_folder(self):
         if self._last_output_path and os.path.exists(self._last_output_path):

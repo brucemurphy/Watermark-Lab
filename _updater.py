@@ -172,38 +172,38 @@ def check_for_update_async(tk_root, on_update_available):
 
 
 def apply_update(progress_cb=None):
-    """Download zip, extract to sibling folder, launch swap script, exit."""
+    """Download zip, extract in %TEMP%, then PS1 moves it into place after exit."""
     if not getattr(sys, "frozen", False):
         raise RuntimeError("apply_update: not running as a frozen exe.")
 
     exe_path = os.path.abspath(sys.executable)
-    app_dir  = os.path.dirname(exe_path)
-    parent   = os.path.dirname(app_dir)
-    new_dir  = os.path.join(parent, "WatermarkLab_new")
+    app_dir  = os.path.dirname(exe_path)           # e.g. Desktop\WatermarkLab
+    parent   = os.path.dirname(app_dir)            # e.g. Desktop
+
+    # All staging happens in %TEMP% — outside OneDrive, no sync locks.
+    tmp_root    = tempfile.gettempdir()
+    extract_tmp = os.path.join(tmp_root, "WatermarkLab_extract_tmp")
+    new_dir     = os.path.join(tmp_root, "WatermarkLab_new")
 
     release  = _fetch_latest_release()
     zip_url  = _zip_download_url(release)
 
-    fd, zip_tmp = tempfile.mkstemp(suffix=".zip", prefix="wml_update_")
+    fd, zip_tmp = tempfile.mkstemp(suffix=".zip", prefix="wml_update_", dir=tmp_root)
     os.close(fd)
-
-    # Extract to a private temp dir first — never touch the running app_dir
-    extract_tmp = os.path.join(parent, "WatermarkLab_extract_tmp")
 
     try:
         _stream_download(zip_url, zip_tmp, progress_cb)
 
-        # Clean up any leftover staging dirs from a previous failed update
+        # Clean up any leftover staging from a previous failed attempt
         for d in (new_dir, extract_tmp):
             if os.path.exists(d):
                 shutil.rmtree(d, ignore_errors=True)
 
-        # Extract into a private staging folder, never into parent directly
         os.makedirs(extract_tmp, exist_ok=True)
         with zipfile.ZipFile(zip_tmp) as zf:
             zf.extractall(extract_tmp)
 
-        # The zip contains a single top-level folder (WatermarkLab or similar)
+        # Zip contains a single top-level folder — find it
         entries = [
             e for e in os.listdir(extract_tmp)
             if os.path.isdir(os.path.join(extract_tmp, e))
@@ -211,19 +211,19 @@ def apply_update(progress_cb=None):
         if not entries:
             raise RuntimeError("Zip contained no top-level folder after extraction.")
 
-        extracted = os.path.join(extract_tmp, entries[0])
-        os.rename(extracted, new_dir)
+        # Move extracted folder to new_dir (both in %TEMP%, same volume — fast)
+        shutil.move(os.path.join(extract_tmp, entries[0]), new_dir)
 
     finally:
         try:
             os.remove(zip_tmp)
         except OSError:
             pass
-        # Clean up staging dir whether we succeeded or failed
         if os.path.exists(extract_tmp):
             shutil.rmtree(extract_tmp, ignore_errors=True)
 
-    fd2, ps1 = tempfile.mkstemp(suffix=".ps1", prefix="wml_swap_")
+    # Write the PS1 swap script into %TEMP% as well
+    fd2, ps1 = tempfile.mkstemp(suffix=".ps1", prefix="wml_swap_", dir=tmp_root)
     os.close(fd2)
     with open(ps1, "w", encoding="utf-8") as f:
         f.write(_SWAP_PS1)
@@ -250,9 +250,12 @@ def cleanup_old_exe():
     """Remove leftover update staging folders from previous runs."""
     if not getattr(sys, "frozen", False):
         return
-    app_dir = os.path.dirname(os.path.abspath(sys.executable))
-    parent  = os.path.dirname(app_dir)
-    for name in ("WatermarkLab_old", "WatermarkLab_new", "WatermarkLab_extract_tmp"):
-        d = os.path.join(parent, name)
-        if os.path.isdir(d):
-            shutil.rmtree(d, ignore_errors=True)
+    app_dir  = os.path.dirname(os.path.abspath(sys.executable))
+    parent   = os.path.dirname(app_dir)
+    tmp_root = tempfile.gettempdir()
+    # Clean up from OneDrive parent (legacy) and %TEMP% (current)
+    for folder in (parent, tmp_root):
+        for name in ("WatermarkLab_old", "WatermarkLab_new", "WatermarkLab_extract_tmp"):
+            d = os.path.join(folder, name)
+            if os.path.isdir(d):
+                shutil.rmtree(d, ignore_errors=True)

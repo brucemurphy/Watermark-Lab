@@ -30,27 +30,14 @@ jobs:
 
       # -----------------------------------------------------------------------
       # 3. Install build dependencies
+      #    imageio-ffmpeg bundles a minimal ffmpeg binary (~30 MB) so no
+      #    separate ffmpeg download step is needed.
       # -----------------------------------------------------------------------
       - name: Install dependencies
-        run: pip install pyinstaller pywin32 Pillow packaging
+        run: pip install pyinstaller pywin32 Pillow packaging imageio-ffmpeg
 
       # -----------------------------------------------------------------------
-      # 4. Download FFmpeg (the GitHub-hosted runner does not include it)
-      # -----------------------------------------------------------------------
-      - name: Download FFmpeg
-        run: |
-          $url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
-          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
-          Expand-Archive -Path ffmpeg.zip -DestinationPath ffmpeg_tmp -Force
-          $bin = Get-ChildItem -Recurse -Filter "ffmpeg.exe" ffmpeg_tmp | Select-Object -First 1
-          Copy-Item $bin.FullName -Destination ffmpeg.exe
-          $bin2 = Get-ChildItem -Recurse -Filter "ffprobe.exe" ffmpeg_tmp | Select-Object -First 1
-          Copy-Item $bin2.FullName -Destination ffprobe.exe
-          Remove-Item -Recurse -Force ffmpeg_tmp, ffmpeg.zip
-        shell: pwsh
-
-      # -----------------------------------------------------------------------
-      # 5. Stamp the version into _version.py
+      # 4. Stamp the version into _version.py
       #    The tag is "vX.Y.Z"; strip the leading "v" for the constant.
       # -----------------------------------------------------------------------
       - name: Stamp version

@@ -5,6 +5,7 @@ using Pillow, then overlays it onto the input video with ffmpeg. Video is
 re-encoded (libx264, CRF 20). Audio is stream-copied to preserve quality.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -14,7 +15,6 @@ from PIL import Image, ImageDraw, ImageFont
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 FFMPEG_EXE = os.path.join(SCRIPT_DIR, "ffmpeg.exe")
-FFPROBE_EXE = os.path.join(SCRIPT_DIR, "ffprobe.exe")
 
 VIDEO_EXTS = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"}
 
@@ -35,44 +35,60 @@ def _next_available_video(base, suffix, ext):
     return candidate
 
 
-def _resolve_ffmpeg():
-    ffmpeg = FFMPEG_EXE if os.path.isfile(FFMPEG_EXE) else shutil.which("ffmpeg")
-    ffprobe = FFPROBE_EXE if os.path.isfile(FFPROBE_EXE) else shutil.which("ffprobe")
-    if not ffmpeg or not ffprobe:
-        raise FileNotFoundError(
-            "ffmpeg.exe / ffprobe.exe not found. Place them next to this script "
-            "or add them to PATH."
-        )
-    return ffmpeg, ffprobe
+def _resolve_ffmpeg() -> str:
+    """Return the path to a usable ffmpeg binary.
+
+    Resolution order:
+    1. imageio-ffmpeg bundled binary (preferred — minimal ~30 MB build).
+    2. ffmpeg.exe sitting next to this script (user-supplied legacy location).
+    3. ffmpeg on PATH.
+    """
+    # 1. imageio-ffmpeg
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.isfile(exe):
+            return exe
+    except Exception:
+        pass
+
+    # 2. Script-directory fallback
+    if os.path.isfile(FFMPEG_EXE):
+        return FFMPEG_EXE
+
+    # 3. PATH
+    on_path = shutil.which("ffmpeg")
+    if on_path:
+        return on_path
+
+    raise FileNotFoundError(
+        "ffmpeg not found. Install imageio-ffmpeg (pip install imageio-ffmpeg) "
+        "or place ffmpeg.exe next to this script, or add ffmpeg to PATH."
+    )
 
 
-def _probe_dimensions(ffprobe: str, video_path: str):
-    out = subprocess.check_output(
-        [
-            ffprobe, "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height",
-            "-of", "csv=p=0:s=x",
-            video_path,
-        ],
+def _probe_video(ffmpeg: str, video_path: str):
+    """Return (width, height, has_audio) by parsing 'ffmpeg -i' stderr.
+
+    ffmpeg -i with no output file always exits non-zero; that is expected.
+    Stream information is written to stderr regardless of the exit code.
+    """
+    result = subprocess.run(
+        [ffmpeg, "-hide_banner", "-i", video_path],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
         creationflags=_NO_WINDOW,
-    ).decode("utf-8", errors="replace").strip()
-    w_str, _, h_str = out.partition("x")
-    return int(w_str), int(h_str)
+    )
+    info = result.stderr.decode("utf-8", errors="replace")
 
+    # Video dimensions: "Video: ..., 1920x1080 [SAR ...]"
+    width, height = 1280, 720  # safe fallback
+    m = re.search(r"Video:.*?,\s*(\d+)x(\d+)", info)
+    if m:
+        width, height = int(m.group(1)), int(m.group(2))
 
-def _has_audio(ffprobe: str, video_path: str) -> bool:
-    out = subprocess.check_output(
-        [
-            ffprobe, "-v", "error",
-            "-select_streams", "a",
-            "-show_entries", "stream=index",
-            "-of", "csv=p=0",
-            video_path,
-        ],
-        creationflags=_NO_WINDOW,
-    ).decode("utf-8", errors="replace").strip()
-    return bool(out)
+    has_audio = "Audio:" in info
+    return width, height, has_audio
 
 
 def _find_font(font_size: int) -> ImageFont.ImageFont:
@@ -152,15 +168,14 @@ def add_video_watermark(
     if not os.path.isfile(video_path):
         raise FileNotFoundError(video_path)
 
-    ffmpeg, ffprobe = _resolve_ffmpeg()
+    ffmpeg = _resolve_ffmpeg()
 
     base, ext = os.path.splitext(video_path)
     if not ext:
         ext = ".mp4"
     output_path = _next_available_video(base, "_watermarked", ext)
 
-    width, height = _probe_dimensions(ffprobe, video_path)
-    has_audio = _has_audio(ffprobe, video_path)
+    width, height, has_audio = _probe_video(ffmpeg, video_path)
 
     if font_size is None:
         # Auto-scale: roughly 1/30 of frame height, clamped.

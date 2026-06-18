@@ -26,24 +26,22 @@ It ships as a dark-themed Tkinter GUI, drives PowerPoint via COM for native slid
 ### Python packages
 
 ```powershell
-pip install pywin32 Pillow packaging
+pip install pywin32 Pillow packaging imageio-ffmpeg
 ```
 
 ---
 
 ## FFmpeg setup
 
-FFmpeg is **not bundled** with this repository — you need to download it yourself and place the executables next to `Watermark_Lab.pyw`.
+FFmpeg is bundled automatically via the **`imageio-ffmpeg`** Python package — no manual download or PATH configuration needed.
 
-1. Download a Windows **"essentials"** build of FFmpeg. Recommended sources:
-   - https://www.gyan.dev/ffmpeg/builds/ (look for `ffmpeg-release-essentials.zip`)
-   - https://github.com/BtbN/FFmpeg-Builds/releases (look for a `win64-gpl` build)
-2. Extract the archive. Inside you'll find a `bin/` folder containing `ffmpeg.exe`, `ffprobe.exe`, and `ffplay.exe`.
-3. Copy **`ffmpeg.exe`** and **`ffprobe.exe`** (and optionally `ffplay.exe`) into the **same folder as `Watermark_Lab.pyw`**.
+```powershell
+pip install imageio-ffmpeg
+```
 
-Alternatively, install FFmpeg system-wide (e.g., `winget install Gyan.FFmpeg`) and make sure `ffmpeg.exe` / `ffprobe.exe` are on your `PATH`. The app checks the script folder first, then falls back to `PATH`.
+The package includes a minimal, purpose-built ffmpeg binary (~30 MB) and exposes it to the app at runtime. When building the portable exe, PyInstaller picks up and embeds that same binary automatically.
 
-If neither location has the binaries, video watermarking will fail with a clear error message; PowerPoint watermarking will continue to work without FFmpeg.
+> **Manual override (advanced):** if you need a specific ffmpeg build, place `ffmpeg.exe` next to `Watermark_Lab.pyw`. The app checks the script directory first and falls back to `imageio-ffmpeg`, then `PATH`.
 
 ---
 
@@ -54,7 +52,9 @@ If neither location has the binaries, video watermarking will fail with a clear 
 | [Watermark_Lab.pyw](Watermark_Lab.pyw) | Tkinter GUI entry point |
 | [_powerpoint.py](_powerpoint.py) | PowerPoint COM watermarking |
 | [_video.py](_video.py) | Video watermarking via ffmpeg + Pillow |
-| `ffmpeg.exe` / `ffprobe.exe` | **User-supplied** — see [FFmpeg setup](#ffmpeg-setup) |
+| [_version.py](_version.py) | App version constant (stamped by CI) |
+| [_updater.py](_updater.py) | Auto-update engine |
+| `ffmpeg` (via `imageio-ffmpeg`) | Bundled automatically — no manual download |
 | `Watermark.ico` / `Watermark.png` | Window icon |
 | `SplashLab.png` | Splash screen shown at launch |
 | [WatermarkLab.spec](WatermarkLab.spec) | PyInstaller spec for the portable single-file build |
@@ -77,7 +77,7 @@ Extracting beside the exe (rather than in `%TEMP%`) is what keeps it portable an
 2. Install the build tooling:
 
    ```powershell
-   pip install pyinstaller pywin32 Pillow packaging
+   pip install pyinstaller pywin32 Pillow packaging imageio-ffmpeg
    ```
 
 3. Build the executable:
@@ -90,9 +90,9 @@ Extracting beside the exe (rather than in `%TEMP%`) is what keeps it portable an
 
 ### What gets embedded
 
-- Application code: `Watermark_Lab.pyw`, `_powerpoint.py`, `_video.py`
+- Application code: `Watermark_Lab.pyw`, `_powerpoint.py`, `_video.py`, `_version.py`, `_updater.py`
 - Image assets: `SplashLab.png`, `Watermark.png`, `Watermark.ico`
-- FFmpeg binaries: `ffmpeg.exe`, `ffprobe.exe` (`ffplay.exe` is intentionally omitted — the app doesn't use it)
+- FFmpeg binary: supplied by `imageio-ffmpeg` (~30 MB minimal build, embedded automatically)
 
 The resulting exe is windowed (`console=False`) and uses `Watermark.ico` as its taskbar / file icon.
 

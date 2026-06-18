@@ -48,7 +48,7 @@ def _apply_dark_theme(root: tk.Tk) -> None:
         troughcolor=DARK_FIELD, focuscolor=ACCENT,
         insertcolor=DARK_FG,
     )
-    style.configure("TFrame", background=DARK_BG)
+    style.configure("TFrame", background=DARK_BG, borderwidth=0, relief="flat")
     style.configure("TLabel", background=DARK_BG, foreground=DARK_FG)
     style.configure("Muted.TLabel", background=DARK_BG, foreground=DARK_MUTED)
     style.configure("TEntry",
@@ -135,13 +135,14 @@ class WatermarkApp(tk.Tk):
         self.color_hex = "#A6A6A6"  # default gray
         self.transparency_var = tk.DoubleVar(value=70.0)  # percent
         self.export_pdf_var = tk.BooleanVar(value=False)
+        self.open_file_var = tk.BooleanVar(value=True)
         self._last_output_path = None
 
         self._build_ui()
 
     def _build_ui(self):
         pad = {"padx": 8, "pady": 6}
-        frm = ttk.Frame(self)
+        frm = ttk.Frame(self, borderwidth=0, relief="flat")
         frm.grid(row=0, column=0, padx=10, pady=10)
 
         # File picker
@@ -186,22 +187,18 @@ class WatermarkApp(tk.Tk):
         )
         self.pdf_check.grid(row=4, column=1, columnspan=2, sticky="w", **pad)
 
+        # Open file after watermarking option
+        self.open_file_check = ttk.Checkbutton(
+            frm,
+            text="Open file after watermarking",
+            variable=self.open_file_var,
+            style="Dark.TCheckbutton",
+        )
+        self.open_file_check.grid(row=5, column=1, columnspan=2, sticky="w", **pad)
+
         # Action buttons
         btns = ttk.Frame(frm)
-        btns.grid(row=5, column=0, columnspan=3, pady=(12, 4))
-
-        # Folder button — shown in place of the squiggle after a job completes
-        self.folder_btn = tk.Button(
-            btns,
-            text="\U0001F4C2",
-            font=("Segoe UI Emoji", 14),
-            bg=DARK_BG, fg=DARK_FG,
-            activebackground=DARK_BORDER, activeforeground=DARK_FG,
-            relief="flat", bd=0, cursor="hand2",
-            command=self._open_output_folder,
-        )
-        self.folder_btn.pack(side="left", padx=(0, 2))
-        self.folder_btn.pack_forget()  # hidden until a job succeeds
+        btns.grid(row=6, column=0, columnspan=3, pady=(12, 4))
 
         self.run_btn = ttk.Button(
             btns, text="Apply Watermark", command=self._run, style="Accent.TButton"
@@ -209,10 +206,24 @@ class WatermarkApp(tk.Tk):
         self.run_btn.pack(side="left", padx=6)
         ttk.Button(btns, text="Quit", command=self.destroy).pack(side="left", padx=6)
 
-        # Status
+        # Status row: folder icon (always col-0) + status text (col-1)
+        status_frm = ttk.Frame(frm)
+        status_frm.grid(row=8, column=0, columnspan=3, sticky="w", **pad)
+
+        self.folder_btn = tk.Button(
+            status_frm,
+            text="\U0001F4C2",
+            font=("Segoe UI Emoji", 11),
+            bg=DARK_BG, fg=DARK_BG,          # invisible until a job succeeds
+            activebackground=DARK_BG, activeforeground=DARK_BG,
+            relief="flat", bd=0, padx=0, pady=0, cursor="",
+            command=self._open_output_folder,
+        )
+        self.folder_btn.grid(row=0, column=0, padx=(0, 4), pady=(5, 0), sticky="s")
+
         self.status_var = tk.StringVar(value="Ready.")
-        ttk.Label(frm, textvariable=self.status_var, style="Muted.TLabel").grid(
-            row=6, column=0, columnspan=3, sticky="w", **pad
+        ttk.Label(status_frm, textvariable=self.status_var, style="Muted.TLabel").grid(
+            row=0, column=1, pady=(0, 2), sticky="ws"
         )
 
     def _open_output_folder(self):
@@ -403,23 +414,29 @@ class WatermarkApp(tk.Tk):
         self.configure(cursor="")
         if err is None:
             self._last_output_path = output_path
-            self.folder_btn.pack(side="left", padx=(0, 6))
+            self.folder_btn.configure(
+                fg=DARK_FG, activebackground=DARK_BORDER,
+                activeforeground=DARK_FG, cursor="hand2"
+            )
             self.status_var.set(f"Done. Saved: {output_path}")
             self.bell()
             messagebox.showinfo(
                 "Finished",
-                f"Watermark applied successfully.\n\nSaved to:\n{output_path}\n\n"
-                "Opening the new file now\u2026",
+                f"Watermark applied successfully.\n\nSaved to:\n{output_path}",
             )
-            try:
-                os.startfile(output_path)  # type: ignore[attr-defined]
-            except Exception as open_err:  # noqa: BLE001
-                messagebox.showwarning(
-                    "Could not open file",
-                    f"Watermarking succeeded but the file could not be opened automatically:\n{open_err}",
-                )
+            if self.open_file_var.get():
+                try:
+                    os.startfile(output_path)  # type: ignore[attr-defined]
+                except Exception as open_err:  # noqa: BLE001
+                    messagebox.showwarning(
+                        "Could not open file",
+                        f"Watermarking succeeded but the file could not be opened automatically:\n{open_err}",
+                    )
         else:
-            self.folder_btn.pack_forget()
+            self.folder_btn.configure(
+                fg=DARK_BG, activebackground=DARK_BG,
+                activeforeground=DARK_BG, cursor=""
+            )
             self.status_var.set(f"Error: {err}")
             messagebox.showerror("Error", str(err))
 

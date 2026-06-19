@@ -54,6 +54,8 @@ def _apply_dark_theme(root: tk.Tk) -> None:
     style.configure("TEntry",
         fieldbackground=DARK_FIELD, foreground=DARK_FG,
         bordercolor=DARK_BORDER, insertcolor=DARK_FG, padding=4,
+        lightcolor=DARK_BORDER, darkcolor=DARK_BORDER,
+        relief="flat",
     )
     style.map("TEntry",
         fieldbackground=[("focus", DARK_FIELD)],
@@ -143,7 +145,7 @@ class WatermarkApp(tk.Tk):
     def _build_ui(self):
         pad = {"padx": 8, "pady": 6}
         frm = ttk.Frame(self, borderwidth=0, relief="flat")
-        frm.grid(row=0, column=0, padx=10, pady=10)
+        frm.grid(row=0, column=0, padx=14, pady=(16, 12))
 
         # File picker
         ttk.Label(frm, text="File (.pptx / .mp4):").grid(row=0, column=0, sticky="w", **pad)
@@ -494,7 +496,7 @@ def _on_update_available(root: tk.Tk, remote_version: str, notes: str) -> None:
 
 if __name__ == "__main__":
     cleanup_old_exe()
-    _show_splash
+    _show_splash(SPLASH_IMAGE, SPLASH_DURATION_MS)
     app = WatermarkApp()
     app.after(
         3000,

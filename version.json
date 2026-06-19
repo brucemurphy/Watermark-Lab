@@ -2,5 +2,5 @@
   "version": "1.1.1",
   "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v1.1.1/WatermarkLab.zip",
   "sha256": "",
-  "notes": "- Checkboxes replaced with native tk widgets for better size and dark theme consistency"
+  "notes": "- Folder icon now appears before the status text - click to open the output folder\n- New checkbox: Open file after watermarking (on by default)\n- Fixed grey border line below the title bar\n- Fixed icon/text vertical alignment in the status row\n- Release notes now shown in the update dialog\n- Splash screen now displays on launch\n- Checkboxes replaced with native widgets for better size and dark theme consistency"
 }

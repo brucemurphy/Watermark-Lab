@@ -1,9 +1,6 @@
-{
+﻿{
   "version": "1.1.0",
   "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v1.1.0/WatermarkLab.zip",
   "sha256": "",
-  "notes": "• Folder icon now appears before the status text — click to open the output folder\n• New checkbox: Open file after watermarking (on by default)\n• Fixed grey border line below the title bar\n• Fixed icon/text vertical alignment in the status row\n• Release notes now shown in the update dialog instead of a raw GitHub compare link\n• Local video/media files and CHANGELOG excluded from repo"
-}
-  "sha256": "",
-  "notes": ""
+  "notes": "- Folder icon now appears before the status text - click to open the output folder\n- New checkbox: Open file after watermarking (on by default)\n- Fixed grey border line below the title bar\n- Fixed icon/text vertical alignment in the status row\n- Release notes now shown in the update dialog\n- Splash screen now displays on launch"
 }

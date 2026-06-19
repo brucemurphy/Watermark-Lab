@@ -85,6 +85,7 @@ def _apply_dark_theme(root: tk.Tk) -> None:
         background=DARK_BG, foreground=DARK_FG,
         focuscolor=ACCENT, indicatorcolor=DARK_FIELD,
         indicatorbackground=DARK_FIELD, indicatorforeground=ACCENT,
+        indicatorsize=16,
     )
     style.map("Dark.TCheckbutton",
         background=[("active", DARK_BG)],
@@ -181,20 +182,26 @@ class WatermarkApp(tk.Tk):
         self.trans_label.grid(row=3, column=2, sticky="w", **pad)
 
         # PDF export option (PowerPoint only)
-        self.pdf_check = ttk.Checkbutton(
+        self.pdf_check = tk.Checkbutton(
             frm,
             text="Also export PDF (PowerPoint only)",
             variable=self.export_pdf_var,
-            style="Dark.TCheckbutton",
+            bg=DARK_BG, fg=DARK_FG,
+            activebackground=DARK_BG, activeforeground=DARK_FG,
+            selectcolor=DARK_FIELD,
+            relief="flat", bd=0, highlightthickness=0,
         )
         self.pdf_check.grid(row=4, column=1, columnspan=2, sticky="w", **pad)
 
         # Open file after watermarking option
-        self.open_file_check = ttk.Checkbutton(
+        self.open_file_check = tk.Checkbutton(
             frm,
             text="Open file after watermarking",
             variable=self.open_file_var,
-            style="Dark.TCheckbutton",
+            bg=DARK_BG, fg=DARK_FG,
+            activebackground=DARK_BG, activeforeground=DARK_FG,
+            selectcolor=DARK_FIELD,
+            relief="flat", bd=0, highlightthickness=0,
         )
         self.open_file_check.grid(row=5, column=1, columnspan=2, sticky="w", **pad)
 

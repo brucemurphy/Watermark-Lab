@@ -1,212 +1,193 @@
 # Watermark Lab
 
-A lightweight Windows desktop tool for applying tiled, diagonal, semi-transparent watermarks to **PowerPoint presentations** and **video files**.
+> **Version 1.2.0** — First official release  
+> A lightweight Windows desktop tool for applying professional, tiled, diagonal watermarks to PowerPoint presentations and video files.
 
-It ships as a dark-themed Tkinter GUI, drives PowerPoint via COM for native slide edits, and uses **ffmpeg** with a Pillow-generated overlay for video.
+---
+
+## Overview
+
+Watermark Lab lets you stamp any `.pptx` or video file with a customisable diagonal text watermark in seconds. It runs entirely on your Windows machine — no cloud, no subscription, no data leaves your device.
+
+- PowerPoint files are watermarked natively via COM — the result is a real editable `.pptx`, not a flattened image.
+- Video files are processed with ffmpeg, which the app downloads automatically on first use.
+- The app ships as a self-contained portable folder — unzip and run, no installer needed.
 
 ---
 
 ## Features
 
-- **PowerPoint watermarking** (`.pptx`, `.ppt`) — tiled text added as a real text shape on every slide, rotated -30°, with adjustable color and transparency. Saved as a new `*_watermarked.pptx`.
-- **Video watermarking** (`.mp4`, `.mov`, `.m4v`, `.mkv`, `.avi`, `.webm`) — generates a tiled diagonal PNG overlay and re-encodes via ffmpeg (libx264, CRF 20). Audio is stream-copied so quality is preserved. Saved as a new `*_watermarked.<ext>`.
-- **Dark-mode GUI** with file picker, color picker, transparency slider, and live status / progress.
-- **Background processing** — encoding runs on a worker thread so the UI stays responsive.
-- **Auto-open** the result when finished.
+| Feature | Detail |
+|---|---|
+| **PowerPoint watermarking** | `.pptx` / `.ppt` — tiled diagonal text shape added to every slide. Fully editable output. |
+| **Video watermarking** | `.mp4` `.mov` `.m4v` `.mkv` `.avi` `.webm` — PNG overlay composited via ffmpeg. Audio stream-copied, no quality loss. |
+| **Custom watermark text** | Any text — default is `CONFIDENTIAL`. |
+| **Color picker** | Full RGB color chooser with live swatch preview. |
+| **Transparency slider** | 0% (fully opaque) → 100% (invisible). |
+| **PDF export** | Optionally export a PDF alongside the watermarked PowerPoint. |
+| **Open file after save** | Checkbox to auto-open the output file when done (on by default). |
+| **Folder shortcut** | 📂 icon in the status bar — click to open the output folder in Explorer. |
+| **Splash screen** | Branded splash shown at launch. |
+| **Dark theme** | Full dark UI throughout — title bar, controls, status bar. |
+| **Auto-updater** | Checks GitHub Releases on launch; one-click install of new versions. |
+| **ffmpeg auto-download** | Downloads ffmpeg automatically on first video use (~30 MB). No manual setup. |
+| **Portable** | Runs from any user-writable folder — Desktop, USB stick, network share. |
 
 ---
 
 ## Requirements
 
-- **Windows 10 / 11**
-- **Python 3.10+**
-- **Microsoft PowerPoint** installed locally (required for `.pptx` / `.ppt` — driven through COM)
-- **FFmpeg** (`ffmpeg.exe` and `ffprobe.exe`) — required for video watermarking. **Not included** in this repository; see [FFmpeg setup](#ffmpeg-setup) below.
+- **Windows 10 or 11** (64-bit)
+- **Microsoft PowerPoint** — required for `.pptx` / `.ppt` watermarking (uses COM automation). Not needed for video.
+- No Python install required when running the pre-built `.exe` from a release.
 
-### Python packages
+### Running from source
 
 ```powershell
 pip install pywin32 Pillow packaging
+python Watermark_Lab.pyw
 ```
+
+Python 3.10 or later required.
 
 ---
 
-## FFmpeg setup
+## Getting Started
 
-No manual setup required. On the **first time you watermark a video**, the app will prompt you to download ffmpeg automatically. It fetches the latest minimal build from [GyanD/codexffmpeg](https://github.com/GyanD/codexffmpeg/releases) (~30 MB) and saves it **alongside the application**:
+### Option A — Pre-built release (recommended)
 
+1. Download `WatermarkLab.zip` from the [latest release](https://github.com/brucemurphy/Watermark-Lab/releases/latest).
+2. Extract the zip to any folder (Desktop, USB stick, etc.).
+3. Double-click `WatermarkLab.exe`.
+
+No installer, no admin rights needed.
+
+### Option B — Run from source
+
+```powershell
+git clone https://github.com/brucemurphy/Watermark-Lab.git
+cd Watermark-Lab
+pip install pywin32 Pillow packaging
+python Watermark_Lab.pyw
 ```
-<folder containing WatermarkLab.exe>\ffmpeg.exe
-```
-
-This keeps the app fully portable — copy the folder to a USB stick or another machine and ffmpeg comes with it. PowerPoint watermarking works without ffmpeg at all.
-
----
-
-## Project layout
-
-| File | Purpose |
-|---|---|
-| [Watermark_Lab.pyw](Watermark_Lab.pyw) | Tkinter GUI entry point |
-| [_powerpoint.py](_powerpoint.py) | PowerPoint COM watermarking |
-| [_video.py](_video.py) | Video watermarking via ffmpeg + Pillow |
-| [_ffmpeg.py](_ffmpeg.py) | ffmpeg cache + on-demand download from GitHub |
-| [_version.py](_version.py) | App version constant (stamped by CI) |
-| [_updater.py](_updater.py) | Auto-update via GitHub Releases API |
-| `Watermark.ico` / `Watermark.png` | Window icon |
-| `SplashLab.png` | Splash screen shown at launch |
-| [WatermarkLab.spec](WatermarkLab.spec) | PyInstaller spec for the portable single-file build |
-
----
-
-## Building a portable executable
-
-You can package Watermark Lab as a **self-contained folder** using [PyInstaller](https://pyinstaller.org/). Zip the folder and it runs on any Windows 10/11 machine with no Python install required.
-
-### Why a folder (onedir) instead of a single exe (onefile)?
-
-Onefile mode extracts a temporary `_MEI` folder at every launch. This causes two fatal problems:
-
-- **OneDrive** — the sync engine locks freshly-extracted files before the app can read them → crash
-- **WDAC / App Control** — corporate policy blocks DLL loads from `%TEMP%` → blocked
-
-Onedir has no runtime extraction. All files are pre-extracted at build time and stay where they are.
-
-### Build steps
-
-1. Complete the [FFmpeg setup](#ffmpeg-setup) — `ffmpeg.exe` and `ffprobe.exe` must be sitting next to `WatermarkLab.spec`, because the build embeds them into the output.
-2. Install the build tooling:
-
-   ```powershell
-   pip install pyinstaller pywin32 Pillow packaging
-   ```
-
-3. Build:
-
-   ```powershell
-   pyinstaller WatermarkLab.spec
-   ```
-
-4. The output folder is `dist\WatermarkLab\`. Zip it and copy anywhere:
-
-   ```powershell
-   Compress-Archive -Path dist\WatermarkLab -DestinationPath WatermarkLab.zip
-   ```
-
-### What gets embedded
-
-- Application code: `Watermark_Lab.pyw`, `_powerpoint.py`, `_video.py`, `_ffmpeg.py`, `_version.py`, `_updater.py`
-- Image assets: `SplashLab.png`, `Watermark.png`, `Watermark.ico`
-
-ffmpeg is **not embedded** — it is downloaded on first video use and cached in `%LOCALAPPDATA%\WatermarkLab\`.
-
-The resulting exe is windowed (`console=False`) and uses `Watermark.ico` as its taskbar / file icon.
-
-### Notes
-
-- Place the exe somewhere user-writable (Desktop, Documents, a USB stick). It cannot run from a folder where the user has no write permission, because it needs to create the `_MEI<pid>` extraction folder beside itself.
-- The first launch is slightly slower than subsequent launches due to the unpack step.
-- PyInstaller writes intermediate files to `build\` and finished output to `dist\`. Both are ignored by [.gitignore](.gitignore). Clean them anytime with:
-
-  ```powershell
-  Remove-Item -Recurse -Force build, dist
-  ```
 
 ---
 
 ## Usage
 
-### GUI
+1. Click **Browse…** and select a `.pptx`, `.ppt`, or video file.
+2. Enter your **watermark text** (default: `CONFIDENTIAL`).
+3. Choose a **color** and set **transparency** with the slider.
+4. Optionally check **Also export PDF** (PowerPoint only).
+5. Optionally uncheck **Open file after watermarking** if you don't want it to auto-open.
+6. Click **Apply Watermark**.
 
-Double-click `Watermark_Lab.pyw`, or from a terminal:
+The output file is saved next to the source with a `_watermarked` suffix:
+
+```
+my_presentation.pptx  →  my_presentation_watermarked.pptx
+recording.mp4         →  recording_watermarked.mp4
+```
+
+When complete, the 📂 icon appears in the status bar — click it to open the output folder in Explorer.
+
+---
+
+## FFmpeg
+
+Video watermarking requires ffmpeg. **No manual setup is needed.**
+
+On first video use the app prompts you to download ffmpeg automatically. It fetches the latest minimal essentials build from [GyanD/codexffmpeg](https://github.com/GyanD/codexffmpeg) (~30 MB) and saves it alongside the app:
+
+```
+WatermarkLab\ffmpeg.exe
+```
+
+ffmpeg is cached — subsequent launches find it instantly with no network call. Copy the whole `WatermarkLab` folder to another machine and ffmpeg comes with it.
+
+> **FFmpeg copyright notice**  
+> FFmpeg is © the FFmpeg developers and other contributors.  
+> Licensed under the [GNU Lesser General Public License (LGPL) v2.1+](https://ffmpeg.org/legal.html) or the GNU GPL v2+ depending on the build configuration.  
+> Watermark Lab does **not** redistribute FFmpeg binaries. FFmpeg is downloaded separately by the user at runtime.  
+> Source code: https://ffmpeg.org/
+
+---
+
+## Auto-Update
+
+Three seconds after launch the app silently checks the GitHub Releases API for a newer version. If one is found you'll see a prompt:
+
+> **Watermark Lab x.y.z is available.**  
+> What's new: …  
+> Install now and restart?
+
+On **Yes**:
+1. The new `WatermarkLab.zip` is downloaded from GitHub's CDN.
+2. The updated files are copied over the existing app folder via a background PowerShell script.
+3. The updated app launches automatically.
+
+Update checks are a no-op when running from Python source (`python Watermark_Lab.pyw`).
+
+---
+
+## Project Layout
+
+| File | Purpose |
+|---|---|
+| `Watermark_Lab.pyw` | Main GUI entry point (Tkinter) |
+| `_powerpoint.py` | PowerPoint COM watermarking engine |
+| `_video.py` | Video watermarking via ffmpeg + Pillow |
+| `_ffmpeg.py` | ffmpeg auto-download and path resolution |
+| `_updater.py` | GitHub Releases auto-update logic |
+| `_version.py` | Version constant — stamped by CI at build time |
+| `version.json` | Release metadata and in-app update notes |
+| `WatermarkLab.spec` | PyInstaller build spec |
+| `SplashLab.png` | Splash screen image |
+| `Watermark.ico` / `Watermark.png` | App icon |
+| `.github/workflows/release.yml` | CI: build, zip, publish GitHub Release on tag push |
+
+---
+
+## Building from Source
+
+The release workflow builds automatically via GitHub Actions on every version tag push. To build locally:
 
 ```powershell
-python Watermark_Lab.pyw
+pip install pyinstaller pywin32 Pillow packaging
+pyinstaller WatermarkLab.spec
 ```
 
-1. **Browse…** and pick a `.pptx`, `.ppt`, or video file.
-2. Enter the **watermark text** (default: `CONFIDENTIAL`).
-3. Pick a **color** and adjust **transparency** (0% = opaque, 100% = invisible).
-4. Click **Apply Watermark**. The output file opens automatically when finished.
-
-### Command line
-
-The two backend modules can also be invoked directly:
+Output is in `dist\WatermarkLab\`. Zip it for distribution:
 
 ```powershell
-# PowerPoint
-python _powerpoint.py "deck.pptx" "CONFIDENTIAL"
-
-# Video
-python _video.py "clip.mp4" "CONFIDENTIAL"
+Compress-Archive -Path dist\WatermarkLab -DestinationPath WatermarkLab.zip
 ```
 
-Both write a sibling file with a `_watermarked` suffix.
+> **Why a folder (onedir) and not a single exe (onefile)?**  
+> Onefile mode extracts to `%TEMP%` at every launch. This causes crashes on OneDrive-synced folders (sync engine locks the files) and is blocked by WDAC/App Control policies on managed Windows machines. Onedir has no runtime extraction — all files are in place from the start.
 
 ---
 
-## How it works
+## Third-Party Notices
 
-- **PowerPoint** — uses `pywin32` early-bound COM (`gencache.EnsureDispatch`) to add an oversized `TextBox` shape per slide, fills it with a tiled grid of text, rotates it -30°, and applies color + transparency via `Font2.Fill`. PowerPoint's `ForeColor.RGB` uses BGR byte order, so the input `0xRRGGBB` value is byte-swapped before assignment. PowerPoint runs hidden (`WithWindow=False`) and is force-terminated after save to release file locks.
-- **Video** — Pillow renders a tiled, rotated RGBA PNG sized to the video frame, then ffmpeg overlays it with `-filter_complex "[0:v][1:v]overlay=0:0"`. Font size auto-scales to roughly `height / 30`. Progress is parsed from ffmpeg's `time=` output and pushed back to the GUI.
+This repository does **not** redistribute any third-party binaries.
 
----
-
-## Notes & limitations
-
-- PowerPoint integration is **Windows-only** (uses COM).
-- Closing the GUI while a job is running will not kill the background ffmpeg / PowerPoint process — let it finish first.
-- Output files are always written next to the source with a `_watermarked` suffix; existing files with that name are overwritten.
-
----
-
-## Third-party software
-
-This repository does **not** redistribute any third-party binaries. The following components are used at runtime and remain the property of their respective authors:
-
-- **FFmpeg** — https://ffmpeg.org/ — user-supplied at runtime (see [FFmpeg setup](#ffmpeg-setup)). Licensed under the LGPL or GPL depending on the build you download. Consult the license bundled with your FFmpeg download for the exact terms.
-- **Pillow** — https://python-pillow.org/ — MIT-CMU / HPND license.
-- **pywin32** — https://github.com/mhammond/pywin32 — PSF License.
-
----
-
-## Release & Auto-Update
-
-Watermark Lab uses **GitHub Releases** as the single source of truth for both distribution and updates. No external services or secrets required.
-
-### How releases are published
-
-1. Push a version tag:
-   ```powershell
-   git tag v1.2.0
-   git push origin v1.2.0
-   ```
-2. The [release workflow](.github/workflows/release.yml) runs automatically:
-   - Stamps `_version.py` with the tag version.
-   - Builds `WatermarkLab.exe` via PyInstaller.
-   - Creates a GitHub Release and attaches `WatermarkLab.exe` as a release asset.
-
-### How the in-app update works
-
-3 seconds after launch the app silently calls the GitHub Releases API:
-```
-https://api.github.com/repos/brucemurphy/Watermark-Lab/releases/latest
-```
-If the `tag_name` version is newer than the running build, the user is prompted. On confirmation:
-
-1. Streams the new `WatermarkLab.exe` from GitHub's CDN to `WatermarkLab.exe.tmp`.
-2. Renames the running exe to `WatermarkLab.exe.old`.
-3. Moves `.tmp` to `WatermarkLab.exe`.
-4. Launches the new exe and exits.
-
-The `.old` file is cleaned up on the next startup. Update checks are a no-op when running from Python source.
-
-### No secrets or external services needed
-
-GitHub Releases are public. No Azure storage account, no manifest file, no API keys.
+| Component | License | Notes |
+|---|---|---|
+| **FFmpeg** | LGPL v2.1+ / GPL v2+ | Downloaded at runtime by the user. © FFmpeg developers. https://ffmpeg.org |
+| **Pillow** | HPND / MIT-CMU | Used for watermark image generation. https://python-pillow.org |
+| **pywin32** | PSF License | Used for PowerPoint COM automation. https://github.com/mhammond/pywin32 |
+| **packaging** | Apache 2.0 / BSD | Used for version comparison. https://github.com/pypa/packaging |
 
 ---
 
 ## License
 
-The source code in this repository is © its respective authors. See [`LICENSE`](LICENSE) for terms.
+Copyright © 2026 Bruce Murphy.  
+Released under the [MIT License](LICENSE).
+
+---
+
+## Release History
+
+See [Releases](https://github.com/brucemurphy/Watermark-Lab/releases) on GitHub.

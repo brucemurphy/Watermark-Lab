@@ -64,10 +64,12 @@ jobs:
       - name: Read release notes
         id: notes
         run: |
-          $notes = (Get-Content version.json | ConvertFrom-Json).notes
-          # Expand \n escape sequences so they become real newlines in the release body
+          $notes = (Get-Content -Raw version.json | ConvertFrom-Json).notes
           $notes = $notes -replace '\\n', "`n"
-          echo "body=$notes" >> $env:GITHUB_OUTPUT
+          $delimiter = "NOTES_EOF"
+          echo "body<<$delimiter" >> $env:GITHUB_OUTPUT
+          echo $notes >> $env:GITHUB_OUTPUT
+          echo $delimiter >> $env:GITHUB_OUTPUT
         shell: pwsh
 
       # -----------------------------------------------------------------------

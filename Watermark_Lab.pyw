@@ -1,4 +1,4 @@
-"""Watermark Lab — Tkinter GUI for PowerPoint and video watermarking."""
+"""Watermark Lab — Tkinter GUI for PowerPoint, Word, and video watermarking."""
 import os
 import shutil
 import subprocess
@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, colorchooser
 
 from _powerpoint import add_watermark
+from _word import add_word_watermark, WORD_EXTS
 from _video import add_video_watermark, is_video_file, VIDEO_EXTS
 from _version import APP_VERSION
 from _updater import check_for_update_async, apply_update, cleanup_old_exe
@@ -149,7 +150,7 @@ class WatermarkApp(tk.Tk):
         frm.grid(row=0, column=0, padx=14, pady=(16, 12))
 
         # File picker
-        ttk.Label(frm, text="File (.pptx / .mp4):").grid(row=0, column=0, sticky="w", **pad)
+        ttk.Label(frm, text="File (.pptx / .docx / .mp4):").grid(row=0, column=0, sticky="w", **pad)
         ttk.Entry(frm, textvariable=self.file_var, width=50).grid(row=0, column=1, **pad)
         ttk.Button(frm, text="Browse…", command=self._pick_file).grid(row=0, column=2, **pad)
 
@@ -181,10 +182,10 @@ class WatermarkApp(tk.Tk):
         self.trans_label = ttk.Label(frm, text="70%")
         self.trans_label.grid(row=3, column=2, sticky="w", **pad)
 
-        # PDF export option (PowerPoint only)
+        # PDF export option (PowerPoint and Word)
         self.pdf_check = tk.Checkbutton(
             frm,
-            text="Also export PDF (PowerPoint only)",
+            text="Also export PDF (PowerPoint / Word only)",
             variable=self.export_pdf_var,
             bg=DARK_BG, fg=DARK_FG,
             activebackground=DARK_BG, activeforeground=DARK_FG,
@@ -242,10 +243,11 @@ class WatermarkApp(tk.Tk):
 
     def _pick_file(self):
         path = filedialog.askopenfilename(
-            title="Select PowerPoint or video file",
+            title="Select PowerPoint, Word, or video file",
             filetypes=[
-                ("Supported files", "*.pptx *.ppt *.mp4 *.mov *.m4v *.mkv *.avi *.webm"),
+                ("Supported files", "*.pptx *.ppt *.docx *.doc *.mp4 *.mov *.m4v *.mkv *.avi *.webm"),
                 ("PowerPoint files", "*.pptx *.ppt"),
+                ("Word documents", "*.docx *.doc"),
                 ("Video files", "*.mp4 *.mov *.m4v *.mkv *.avi *.webm"),
                 ("All files", "*.*"),
             ],
@@ -279,13 +281,15 @@ class WatermarkApp(tk.Tk):
         ext = os.path.splitext(path)[1].lower()
         if ext in PPT_EXTS:
             mode = "ppt"
+        elif ext in WORD_EXTS:
+            mode = "word"
         elif ext in VIDEO_EXTS or is_video_file(path):
             mode = "video"
         else:
             messagebox.showerror(
                 "Unsupported file",
                 f"Unsupported file type: {ext}\n\n"
-                "Supported: .pptx, .ppt, .mp4, .mov, .m4v, .mkv, .avi, .webm",
+                "Supported: .pptx, .ppt, .docx, .doc, .mp4, .mov, .m4v, .mkv, .avi, .webm",
             )
             return
 
@@ -295,6 +299,8 @@ class WatermarkApp(tk.Tk):
         self.run_btn.configure(state="disabled")
         if mode == "ppt":
             self.status_var.set("Working… PowerPoint is processing the file.")
+        elif mode == "word":
+            self.status_var.set("Working… Word is processing the document.")
         else:
             self.status_var.set("Working… ffmpeg is encoding the video.")
         self.configure(cursor="watch")
@@ -304,6 +310,11 @@ class WatermarkApp(tk.Tk):
             try:
                 if mode == "ppt":
                     output_path = add_watermark(
+                        path, text, color_rgb=color_rgb, transparency=transparency,
+                        export_pdf=bool(self.export_pdf_var.get()),
+                    )
+                elif mode == "word":
+                    output_path = add_word_watermark(
                         path, text, color_rgb=color_rgb, transparency=transparency,
                         export_pdf=bool(self.export_pdf_var.get()),
                     )

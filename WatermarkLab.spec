@@ -26,7 +26,8 @@ a = Analysis(
     ],
     hiddenimports=[
         'packaging', 'packaging.version',
-        '_ffmpeg', '_updater', '_version',
+        '_ffmpeg', '_updater', '_version', '_word',
+        'docx', 'docx.oxml.ns', 'lxml', 'lxml.etree',
         'PIL._imaging',
         'PIL._imagingft',
         'PIL.Image',

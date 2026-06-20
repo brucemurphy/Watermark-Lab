@@ -34,7 +34,7 @@ jobs:
       #    GitHub (GyanD/codexffmpeg). No ffmpeg needed at build time.
       # -----------------------------------------------------------------------
       - name: Install dependencies
-        run: pip install pyinstaller pywin32 Pillow packaging
+        run: pip install pyinstaller pywin32 Pillow packaging python-docx
 
       # -----------------------------------------------------------------------
       # 4. Stamp the version — strips the leading "v" from the tag

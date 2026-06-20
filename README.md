@@ -20,6 +20,7 @@ Watermark Lab lets you stamp any `.pptx` or video file with a customisable diago
 | Feature | Detail |
 |---|---|
 | **PowerPoint watermarking** | `.pptx` / `.ppt` — tiled diagonal text shape added to every slide. Fully editable output. |
+| **Word watermarking** | `.docx` / `.doc` — native diagonal watermark via Word's own VML format. Identical to Design → Watermark in the ribbon. |
 | **Video watermarking** | `.mp4` `.mov` `.m4v` `.mkv` `.avi` `.webm` — PNG overlay composited via ffmpeg. Audio stream-copied, no quality loss. |
 | **Custom watermark text** | Any text — default is `CONFIDENTIAL`. |
 | **Color picker** | Full RGB color chooser with live swatch preview. |

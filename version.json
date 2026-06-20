@@ -1,6 +1,6 @@
 ﻿{
-  "version": "1.2.0",
-  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v1.2.0/WatermarkLab.zip",
+  "version": "1.3.0",
+  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v1.3.0/WatermarkLab.zip",
   "sha256": "",
-  "notes": "First official release of Watermark Lab.\n\n- Watermark PowerPoint (.pptx/.ppt) and video files (.mp4 .mov .mkv .avi .webm)\n- Custom text, color picker, transparency slider\n- PDF export option (PowerPoint only)\n- Open file after watermarking checkbox (on by default)\n- Folder icon in status bar - click to open output folder\n- Splash screen on launch\n- ffmpeg downloaded automatically on first video use\n- In-app auto-updater via GitHub Releases\n- Full dark theme throughout"
+  "notes": "New: Word document watermarking (.docx/.doc)\n- Diagonal watermark using native Word VML format\n- Color from the color picker\n- Arial font, semitransparent, centred on page\n- PDF export option supported\n- All existing PowerPoint and video features unchanged"
 }

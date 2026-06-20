@@ -46,9 +46,15 @@ _SHAPETYPE_XML = (
 )
 
 def _shape_xml(text, color_hex):
-    """Build the watermark shape -- mirrors Word's own Design->Watermark output."""
+    """Build the watermark shape with explicit font size - no fitshape recalculation needed."""
+    # Shape is 527.85pt wide. Scale font size so text fills ~90% of that width.
+    # Empirically: Segoe UI bold ~0.55pt width-per-point per character.
+    char_count  = max(len(text), 1)
+    font_size   = max(30.0, min(90.0, (527.85 * 0.90) / (char_count * 0.55)))
+    font_size   = round(font_size, 1)
+
     tp_style = (
-        "font-family:Arial;font-size:1pt;font-weight:bold;"
+        f"font-family:'Segoe UI';font-size:{font_size}pt;font-weight:bold;"
         f"color:{color_hex}"
     )
     return (
@@ -66,7 +72,7 @@ def _shape_xml(text, color_hex):
         'xmlns:o="urn:schemas-microsoft-com:office:office" '
         'xmlns:w10="urn:schemas-microsoft-com:office:word">'
         f'<v:fill o:detectmouseclick="f" color="{color_hex}" color2="{color_hex}"/>'
-        f'<v:textpath style="{tp_style}" string="{_xe(text)}" v:trim="t"/>'
+        f'<v:textpath style="{tp_style}" string="{_xe(text)}" fitshape="t"/>'
         '<v:imagedata o:relid="" o:title=""/>'
         '<o:lock v:ext="edit" position="t"/>'
         '<w10:wrap w10:type="none"/>'
@@ -151,6 +157,29 @@ def _convert_doc_to_docx(doc_path):
                                   ReadOnly=True, AddToRecentFiles=False)
         doc.SaveAs2(os.path.abspath(out), FileFormat=16)
         return out
+    finally:
+        if doc:
+            try: doc.Close(SaveChanges=False)
+            except: pass
+        if word:
+            try: word.Quit()
+            except: pass
+        _kill_word()
+
+def _normalize_via_com(docx_path):
+    """Open the saved .docx in Word and re-save it.
+
+    This forces Word's layout engine to recalculate the watermark's
+    fitshape auto-sizing -- equivalent to manually selecting 'Auto'
+    in the watermark font size dropdown.
+    """
+    word = doc = None
+    try:
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False; word.DisplayAlerts = False
+        doc = word.Documents.Open(os.path.abspath(docx_path),
+                                  ReadOnly=False, AddToRecentFiles=False)
+        doc.Save()
     finally:
         if doc:
             try: doc.Close(SaveChanges=False)

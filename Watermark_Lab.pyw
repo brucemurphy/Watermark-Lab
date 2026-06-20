@@ -1,20 +1,30 @@
-"""Watermark Lab — Tkinter GUI for PowerPoint, Word, and video watermarking."""
+"""Watermark Lab - Tkinter GUI for PowerPoint, Word, Excel and video watermarking."""
 import os
 import shutil
 import subprocess
 import sys
 import threading
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, colorchooser
+from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 
 from _powerpoint import add_watermark
 from _word import add_word_watermark, WORD_EXTS
+from _excel import add_excel_watermark, EXCEL_EXTS
 from _video import add_video_watermark, is_video_file, VIDEO_EXTS
+from _prefs import load_presets, save_preset, delete_preset, load_recent, add_recent
 from _version import APP_VERSION
 from _updater import check_for_update_async, apply_update, cleanup_old_exe
 from _ffmpeg import is_ffmpeg_cached, download_ffmpeg, FfmpegNotReadyError
 
+# Optional drag-and-drop support via tkinterdnd2
+try:
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+    _DND_AVAILABLE = True
+except ImportError:
+    _DND_AVAILABLE = False
+
 PPT_EXTS = {".pptx", ".ppt"}
+ALL_SUPPORTED = PPT_EXTS | WORD_EXTS | EXCEL_EXTS | VIDEO_EXTS
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SPLASH_IMAGE = os.path.join(SCRIPT_DIR, "SplashLab.png")
 ICON_ICO = os.path.join(SCRIPT_DIR, "Watermark.ico")
@@ -128,103 +138,116 @@ def _set_window_icon(win: tk.Misc) -> None:
 
 class WatermarkApp(tk.Tk):
     def __init__(self):
+        if _DND_AVAILABLE:
+            TkinterDnD.init(self)
         super().__init__()
         self.title(f"Watermark Lab  v{APP_VERSION}")
         self.resizable(False, False)
         _apply_dark_theme(self)
         _set_window_icon(self)
 
-        self.file_var = tk.StringVar()
-        self.text_var = tk.StringVar(value="CONFIDENTIAL")
-        self.color_hex = "#A6A6A6"  # default gray
-        self.transparency_var = tk.DoubleVar(value=70.0)  # percent
-        self.export_pdf_var = tk.BooleanVar(value=False)
-        self.open_file_var = tk.BooleanVar(value=True)
+        self.file_var         = tk.StringVar()
+        self.text_var         = tk.StringVar(value="CONFIDENTIAL")
+        self.color_hex        = "#A6A6A6"
+        self.transparency_var = tk.DoubleVar(value=70.0)
+        self.export_pdf_var   = tk.BooleanVar(value=False)
+        self.open_file_var    = tk.BooleanVar(value=True)
         self._last_output_path = None
+        self._presets         = {}
+        self._preset_var      = tk.StringVar()
 
         self._build_ui()
+        self._refresh_presets()
+        self._refresh_recent()
 
     def _build_ui(self):
-        pad = {"padx": 8, "pady": 6}
+        pad = {"padx": 8, "pady": 5}
         frm = ttk.Frame(self, borderwidth=0, relief="flat")
         frm.grid(row=0, column=0, padx=14, pady=(16, 12))
 
-        # File picker
-        ttk.Label(frm, text="File (.pptx / .docx / .mp4):").grid(row=0, column=0, sticky="w", **pad)
-        ttk.Entry(frm, textvariable=self.file_var, width=50).grid(row=0, column=1, **pad)
-        ttk.Button(frm, text="Browse…", command=self._pick_file).grid(row=0, column=2, **pad)
+        # ── Row 0: File picker ───────────────────────────────────────────
+        ttk.Label(frm, text="File:").grid(row=0, column=0, sticky="w", **pad)
+        self.file_combo = ttk.Combobox(frm, textvariable=self.file_var,
+                                       width=48, state="normal")
+        self.file_combo.grid(row=0, column=1, **pad)
+        self.file_combo.bind("<<ComboboxSelected>>", self._on_recent_selected)
 
-        # Watermark text
+        btn_frm = ttk.Frame(frm, borderwidth=0, relief="flat")
+        btn_frm.grid(row=0, column=2, **pad)
+        ttk.Button(btn_frm, text="Browse…", command=self._pick_file).pack(side="left", padx=(0, 4))
+        ttk.Button(btn_frm, text="Batch…",  command=self._pick_batch).pack(side="left")
+
+        # ── Row 1: Watermark text ────────────────────────────────────────
         ttk.Label(frm, text="Watermark text:").grid(row=1, column=0, sticky="w", **pad)
         ttk.Entry(frm, textvariable=self.text_var, width=50).grid(
-            row=1, column=1, columnspan=2, sticky="we", **pad
-        )
+            row=1, column=1, columnspan=2, sticky="we", **pad)
 
-        # Color picker
-        ttk.Label(frm, text="Text color:").grid(row=2, column=0, sticky="w", **pad)
+        # ── Row 2: Presets ───────────────────────────────────────────────
+        ttk.Label(frm, text="Preset:").grid(row=2, column=0, sticky="w", **pad)
+        preset_frm = ttk.Frame(frm, borderwidth=0, relief="flat")
+        preset_frm.grid(row=2, column=1, columnspan=2, sticky="w", **pad)
+        self.preset_combo = ttk.Combobox(preset_frm, textvariable=self._preset_var,
+                                         width=28, state="readonly")
+        self.preset_combo.pack(side="left", padx=(0, 6))
+        self.preset_combo.bind("<<ComboboxSelected>>", self._load_preset)
+        ttk.Button(preset_frm, text="Save",   command=self._save_preset).pack(side="left", padx=(0, 4))
+        ttk.Button(preset_frm, text="Delete", command=self._delete_preset).pack(side="left")
+
+        # ── Row 3: Color picker ──────────────────────────────────────────
+        ttk.Label(frm, text="Text color:").grid(row=3, column=0, sticky="w", **pad)
         self.color_swatch = tk.Label(
             frm, text=self.color_hex, bg=self.color_hex, fg="#000000",
             width=12, relief="flat", bd=1, highlightthickness=1,
             highlightbackground=DARK_BORDER,
         )
-        self.color_swatch.grid(row=2, column=1, sticky="w", **pad)
-        ttk.Button(frm, text="Choose color…", command=self._pick_color).grid(
-            row=2, column=2, **pad
-        )
+        self.color_swatch.grid(row=3, column=1, sticky="w", **pad)
+        ttk.Button(frm, text="Choose color…", command=self._pick_color).grid(row=3, column=2, **pad)
 
-        # Transparency slider
-        ttk.Label(frm, text="Transparency (%):").grid(row=3, column=0, sticky="w", **pad)
-        slider = ttk.Scale(
-            frm, from_=0, to=100, orient="horizontal",
-            variable=self.transparency_var, command=self._update_trans_label,
-        )
-        slider.grid(row=3, column=1, sticky="we", **pad)
+        # ── Row 4: Transparency ──────────────────────────────────────────
+        ttk.Label(frm, text="Transparency (%):").grid(row=4, column=0, sticky="w", **pad)
+        slider = ttk.Scale(frm, from_=0, to=100, orient="horizontal",
+                           variable=self.transparency_var,
+                           command=self._update_trans_label)
+        slider.grid(row=4, column=1, sticky="we", **pad)
         self.trans_label = ttk.Label(frm, text="70%")
-        self.trans_label.grid(row=3, column=2, sticky="w", **pad)
+        self.trans_label.grid(row=4, column=2, sticky="w", **pad)
 
-        # PDF export option (PowerPoint and Word)
+        # ── Row 5: PDF export ────────────────────────────────────────────
         self.pdf_check = tk.Checkbutton(
-            frm,
-            text="Also export PDF (PowerPoint / Word only)",
+            frm, text="Also export PDF (PowerPoint / Word / Excel only)",
             variable=self.export_pdf_var,
             bg=DARK_BG, fg=DARK_FG,
             activebackground=DARK_BG, activeforeground=DARK_FG,
-            selectcolor=DARK_FIELD,
-            relief="flat", bd=0, highlightthickness=0,
+            selectcolor=DARK_FIELD, relief="flat", bd=0, highlightthickness=0,
         )
-        self.pdf_check.grid(row=4, column=1, columnspan=2, sticky="w", **pad)
+        self.pdf_check.grid(row=5, column=1, columnspan=2, sticky="w", **pad)
 
-        # Open file after watermarking option
+        # ── Row 6: Open after ────────────────────────────────────────────
         self.open_file_check = tk.Checkbutton(
-            frm,
-            text="Open file after watermarking",
+            frm, text="Open file(s) after watermarking",
             variable=self.open_file_var,
             bg=DARK_BG, fg=DARK_FG,
             activebackground=DARK_BG, activeforeground=DARK_FG,
-            selectcolor=DARK_FIELD,
-            relief="flat", bd=0, highlightthickness=0,
+            selectcolor=DARK_FIELD, relief="flat", bd=0, highlightthickness=0,
         )
-        self.open_file_check.grid(row=5, column=1, columnspan=2, sticky="w", **pad)
+        self.open_file_check.grid(row=6, column=1, columnspan=2, sticky="w", **pad)
 
-        # Action buttons
-        btns = ttk.Frame(frm)
-        btns.grid(row=6, column=0, columnspan=3, pady=(12, 4))
-
-        self.run_btn = ttk.Button(
-            btns, text="Apply Watermark", command=self._run, style="Accent.TButton"
-        )
+        # ── Row 7: Action buttons ────────────────────────────────────────
+        btns = ttk.Frame(frm, borderwidth=0, relief="flat")
+        btns.grid(row=7, column=0, columnspan=3, pady=(12, 4))
+        self.run_btn = ttk.Button(btns, text="Apply Watermark",
+                                  command=self._run, style="Accent.TButton")
         self.run_btn.pack(side="left", padx=6)
         ttk.Button(btns, text="Quit", command=self.destroy).pack(side="left", padx=6)
 
-        # Status row: folder icon (always col-0) + status text (col-1)
-        status_frm = ttk.Frame(frm)
+        # ── Row 8: Status row ────────────────────────────────────────────
+        status_frm = ttk.Frame(frm, borderwidth=0, relief="flat")
         status_frm.grid(row=8, column=0, columnspan=3, sticky="w", **pad)
 
         self.folder_btn = tk.Button(
-            status_frm,
-            text="\U0001F4C2",
+            status_frm, text="\U0001F4C2",
             font=("Segoe UI Emoji", 11),
-            bg=DARK_BG, fg=DARK_BG,          # invisible until a job succeeds
+            bg=DARK_BG, fg=DARK_BG,
             activebackground=DARK_BG, activeforeground=DARK_BG,
             relief="flat", bd=0, padx=0, pady=0, cursor="",
             command=self._open_output_folder,
@@ -232,28 +255,160 @@ class WatermarkApp(tk.Tk):
         self.folder_btn.grid(row=0, column=0, padx=(0, 4), pady=(5, 0), sticky="s")
 
         self.status_var = tk.StringVar(value="Ready.")
-        ttk.Label(status_frm, textvariable=self.status_var, style="Muted.TLabel").grid(
-            row=0, column=1, pady=(0, 2), sticky="ws"
-        )
+        ttk.Label(status_frm, textvariable=self.status_var,
+                  style="Muted.TLabel").grid(row=0, column=1, pady=(0, 2), sticky="ws")
+
+        # ── Drag and drop ────────────────────────────────────────────────
+        if _DND_AVAILABLE:
+            self.file_combo.drop_target_register(DND_FILES)
+            self.file_combo.dnd_bind("<<Drop>>", self._on_drop)
 
     def _open_output_folder(self):
         if self._last_output_path and os.path.exists(self._last_output_path):
-            folder = os.path.dirname(self._last_output_path)
             subprocess.Popen(["explorer", "/select,", self._last_output_path])
+
+    # ── Recent files ─────────────────────────────────────────────────────
+
+    def _refresh_recent(self):
+        recent = load_recent()
+        self.file_combo["values"] = recent
+
+    def _on_recent_selected(self, _evt=None):
+        pass  # value already set by combobox selection
+
+    def _on_drop(self, event):
+        path = event.data.strip().strip("{}")
+        self.file_var.set(path)
+
+    # ── Presets ───────────────────────────────────────────────────────────
+
+    def _refresh_presets(self):
+        self._presets = load_presets()
+        names = list(self._presets.keys())
+        self.preset_combo["values"] = names
+
+    def _load_preset(self, _evt=None):
+        name = self._preset_var.get()
+        p = self._presets.get(name)
+        if not p:
+            return
+        self.text_var.set(p.get("text", "CONFIDENTIAL"))
+        hex_ = p.get("color", "#A6A6A6")
+        self.color_hex = hex_
+        r, g, b = int(hex_[1:3], 16), int(hex_[3:5], 16), int(hex_[5:7], 16)
+        fg = "#000000" if (0.299*r + 0.587*g + 0.114*b) > 140 else "#ffffff"
+        self.color_swatch.configure(bg=hex_, fg=fg, text=hex_)
+        self.transparency_var.set(p.get("transparency", 70.0))
+        self._update_trans_label()
+
+    def _save_preset(self):
+        name = simpledialog.askstring(
+            "Save Preset", "Preset name:", parent=self,
+            initialvalue=self._preset_var.get() or self.text_var.get(),
+        )
+        if not name:
+            return
+        save_preset(name, self.text_var.get(), self.color_hex,
+                    self.transparency_var.get())
+        self._refresh_presets()
+        self._preset_var.set(name)
+
+    def _delete_preset(self):
+        name = self._preset_var.get()
+        if not name:
+            return
+        if messagebox.askyesno("Delete Preset", f'Delete preset "{name}"?', parent=self):
+            delete_preset(name)
+            self._refresh_presets()
+            self._preset_var.set("")
+
+    # ── Batch processing ──────────────────────────────────────────────────
+
+    def _pick_batch(self):
+        folder = filedialog.askdirectory(title="Select folder to batch watermark")
+        if not folder:
+            return
+        files = [
+            os.path.join(folder, f) for f in os.listdir(folder)
+            if os.path.splitext(f)[1].lower() in ALL_SUPPORTED
+        ]
+        if not files:
+            messagebox.showinfo("Batch", "No supported files found in that folder.")
+            return
+        msg = f"Found {len(files)} supported file(s) in:\n{folder}\n\nWatermark all of them?"
+        if not messagebox.askyesno("Batch Watermark", msg, parent=self):
+            return
+        self._run_batch(files)
+
+    def _run_batch(self, files):
+        text         = self.text_var.get().strip()
+        color_rgb    = int(self.color_hex.lstrip("#"), 16)
+        transparency = max(0.0, min(1.0, self.transparency_var.get() / 100.0))
+        export_pdf   = bool(self.export_pdf_var.get())
+
+        if not text:
+            messagebox.showerror("Missing text", "Please enter watermark text.")
+            return
+
+        self.run_btn.configure(state="disabled")
+        self.status_var.set(f"Batch: processing 0 / {len(files)}…")
+        self.configure(cursor="watch")
+        self.update_idletasks()
+
+        def worker():
+            done, errors = 0, []
+            for i, path in enumerate(files, 1):
+                self.after(0, lambda i=i: self.status_var.set(
+                    f"Batch: processing {i} / {len(files)}…"))
+                ext = os.path.splitext(path)[1].lower()
+                try:
+                    if ext in PPT_EXTS:
+                        add_watermark(path, text, color_rgb=color_rgb,
+                                      transparency=transparency, export_pdf=export_pdf)
+                    elif ext in WORD_EXTS:
+                        add_word_watermark(path, text, color_rgb=color_rgb,
+                                           transparency=transparency, export_pdf=export_pdf)
+                    elif ext in EXCEL_EXTS:
+                        add_excel_watermark(path, text, color_rgb=color_rgb,
+                                            transparency=transparency, export_pdf=export_pdf)
+                    elif ext in VIDEO_EXTS or is_video_file(path):
+                        add_video_watermark(path, text, color_rgb=color_rgb,
+                                            transparency=transparency)
+                    done += 1
+                except Exception as e:
+                    errors.append(f"{os.path.basename(path)}: {e}")
+            self.after(0, self._on_batch_done, done, errors)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_batch_done(self, done, errors):
+        self.run_btn.configure(state="normal")
+        self.configure(cursor="")
+        self.bell()
+        msg = f"Batch complete: {done} file(s) watermarked."
+        if errors:
+            msg += f"\n\n{len(errors)} error(s):\n" + "\n".join(errors[:10])
+        messagebox.showinfo("Batch Complete", msg)
+        self.status_var.set(f"Batch done. {done} file(s) processed.")
 
     def _pick_file(self):
         path = filedialog.askopenfilename(
-            title="Select PowerPoint, Word, or video file",
+            title="Select file to watermark",
             filetypes=[
-                ("Supported files", "*.pptx *.ppt *.docx *.doc *.mp4 *.mov *.m4v *.mkv *.avi *.webm"),
+                ("Supported files",
+                 "*.pptx *.ppt *.docx *.doc *.xlsx *.xls *.xlsm "
+                 "*.mp4 *.mov *.m4v *.mkv *.avi *.webm"),
                 ("PowerPoint files", "*.pptx *.ppt"),
-                ("Word documents", "*.docx *.doc"),
-                ("Video files", "*.mp4 *.mov *.m4v *.mkv *.avi *.webm"),
+                ("Word documents",   "*.docx *.doc"),
+                ("Excel workbooks",  "*.xlsx *.xls *.xlsm"),
+                ("Video files",      "*.mp4 *.mov *.m4v *.mkv *.avi *.webm"),
                 ("All files", "*.*"),
             ],
         )
         if path:
             self.file_var.set(path)
+            add_recent(path)
+            self._refresh_recent()
 
     def _pick_color(self):
         rgb, hex_ = colorchooser.askcolor(color=self.color_hex, title="Pick watermark color")
@@ -283,13 +438,16 @@ class WatermarkApp(tk.Tk):
             mode = "ppt"
         elif ext in WORD_EXTS:
             mode = "word"
+        elif ext in EXCEL_EXTS:
+            mode = "excel"
         elif ext in VIDEO_EXTS or is_video_file(path):
             mode = "video"
         else:
             messagebox.showerror(
                 "Unsupported file",
                 f"Unsupported file type: {ext}\n\n"
-                "Supported: .pptx, .ppt, .docx, .doc, .mp4, .mov, .m4v, .mkv, .avi, .webm",
+                "Supported: .pptx .ppt .docx .doc .xlsx .xls .xlsm "
+                ".mp4 .mov .m4v .mkv .avi .webm",
             )
             return
 
@@ -301,10 +459,14 @@ class WatermarkApp(tk.Tk):
             self.status_var.set("Working… PowerPoint is processing the file.")
         elif mode == "word":
             self.status_var.set("Working… Word is processing the document.")
+        elif mode == "excel":
+            self.status_var.set("Working… Excel is processing the workbook.")
         else:
             self.status_var.set("Working… ffmpeg is encoding the video.")
         self.configure(cursor="watch")
         self.update_idletasks()
+        add_recent(path)
+        self._refresh_recent()
 
         def worker():
             try:
@@ -315,6 +477,11 @@ class WatermarkApp(tk.Tk):
                     )
                 elif mode == "word":
                     output_path = add_word_watermark(
+                        path, text, color_rgb=color_rgb, transparency=transparency,
+                        export_pdf=bool(self.export_pdf_var.get()),
+                    )
+                elif mode == "excel":
+                    output_path = add_excel_watermark(
                         path, text, color_rgb=color_rgb, transparency=transparency,
                         export_pdf=bool(self.export_pdf_var.get()),
                     )
@@ -440,10 +607,12 @@ class WatermarkApp(tk.Tk):
             )
             self.status_var.set(f"Done. Saved: {output_path}")
             self.bell()
-            messagebox.showinfo(
-                "Finished",
-                f"Watermark applied successfully.\n\nSaved to:\n{output_path}",
-            )
+            pdf_path = os.path.splitext(output_path)[0] + ".pdf"
+            pdf_exported = self.export_pdf_var.get() and os.path.isfile(pdf_path)
+            msg = f"Watermark applied successfully.\n\nSaved to:\n{output_path}"
+            if pdf_exported:
+                msg += f"\n\nPDF also saved to:\n{pdf_path}"
+            messagebox.showinfo("Finished", msg)
             if self.open_file_var.get():
                 try:
                     os.startfile(output_path)  # type: ignore[attr-defined]
@@ -452,6 +621,14 @@ class WatermarkApp(tk.Tk):
                         "Could not open file",
                         f"Watermarking succeeded but the file could not be opened automatically:\n{open_err}",
                     )
+                # Also open the PDF if export was requested and the file exists
+                if self.export_pdf_var.get():
+                    pdf_path = os.path.splitext(output_path)[0] + ".pdf"
+                    if os.path.isfile(pdf_path):
+                        try:
+                            os.startfile(pdf_path)  # type: ignore[attr-defined]
+                        except Exception:
+                            pass
         else:
             self.folder_btn.configure(
                 fg=DARK_BG, activebackground=DARK_BG,

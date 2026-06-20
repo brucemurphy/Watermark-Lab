@@ -1,6 +1,6 @@
 ﻿{
-  "version": "1.3.0",
-  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v1.3.0/WatermarkLab.zip",
+  "version": "1.4.0",
+  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v1.4.0/WatermarkLab.zip",
   "sha256": "",
-  "notes": "New: Word document watermarking (.docx/.doc)\n- Diagonal watermark using native Word VML format\n- Color from the color picker\n- Arial font, semitransparent, centred on page\n- PDF export option supported\n- All existing PowerPoint and video features unchanged"
+  "notes": "New in v1.4.0:\n- Excel workbook watermarking (.xlsx/.xls/.xlsm)\n- Batch processing - watermark an entire folder at once\n- Watermark presets - save and recall named configurations\n- Recent files dropdown on the file picker\n- Drag and drop files onto the window (requires tkinterdnd2)"
 }

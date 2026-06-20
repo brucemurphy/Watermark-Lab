@@ -33,6 +33,10 @@ Thumbs.db
 # Local-only dev reference (never pushed to GitHub)
 CHANGELOG.md
 
+# User preferences (portable, stored alongside the app)
+presets.json
+recent.json
+
 # Local test media (never pushed to GitHub)
 *.mp4
 *.mov

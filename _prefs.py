@@ -1,21 +1,24 @@
 """Persistent preferences for Watermark Lab.
 
-Stores two JSON files under %APPDATA%\\WatermarkLab\\ :
+Stores two JSON files in the same folder as the running exe (or script):
   presets.json  — named watermark configs (text, color, transparency)
   recent.json   — last N file paths used
+
+Keeping them alongside the app (not in %APPDATA%) means the whole
+WatermarkLab folder stays self-contained and portable.
 """
 import json
 import os
+import sys
 
-_APP_NAME   = "WatermarkLab"
 _MAX_RECENT = 8
 
 
 def _prefs_dir() -> str:
-	base = os.environ.get("APPDATA") or os.path.expanduser("~")
-	d = os.path.join(base, _APP_NAME)
-	os.makedirs(d, exist_ok=True)
-	return d
+	"""Return the folder containing the running exe or this script."""
+	if getattr(sys, "frozen", False):
+		return os.path.dirname(os.path.abspath(sys.executable))
+	return os.path.dirname(os.path.abspath(__file__))
 
 
 def _load(filename: str) -> object:

@@ -1,7 +1,9 @@
 import os
+import shutil
 import subprocess
 import sys
 import win32com.client
+from win32com.client import gencache
 
 # PowerPoint constants
 PP_SAVE_AS_OPEN_XML_PRESENTATION = 24
@@ -28,8 +30,7 @@ def add_watermark(ppt_path, watermark_text, color_rgb=0xA6A6A6, transparency=0.7
     base, ext = os.path.splitext(ppt_path)
     output_path = _next_available(base, "_watermarked", ext or ".pptx")
 
-    # Launch PowerPoint via dynamic (late) COM binding so the watermark flow
-    # works in the frozen build without the win32com gen_py cache.
+    # Launch PowerPoint (early-bound so Font.Fill / Transparency are exposed)
     powerpoint = _ensure_powerpoint()
     # Keep the application window hidden during processing.
     try:
@@ -157,21 +158,66 @@ def _kill_powerpoint():
         pass
 
 
-def _ensure_powerpoint():
-    """Return a PowerPoint.Application COM object using pure dynamic (late)
-    binding.
+def _purge_gen_py():
+    """Remove the win32com gen_py cache from disk and from sys.modules."""
+    # 1. Drop already-imported gen_py modules so re-import is forced.
+    for name in list(sys.modules):
+        if name == "win32com.gen_py" or name.startswith("win32com.gen_py."):
+            sys.modules.pop(name, None)
+    # 2. Reset gencache's in-process maps.
+    try:
+        from win32com.client import CLSIDToClass
+        CLSIDToClass.ResetCaches()
+    except Exception:
+        pass
+    for attr in ("clsidToTypelib", "demandGeneratedTypeLibraries",
+                 "versionRedirectMap"):
+        try:
+            getattr(gencache, attr).clear()
+        except Exception:
+            pass
+    # 3. Wipe every gen_py folder we can find on disk.
+    candidates = []
+    try:
+        candidates.append(gencache.GetGeneratePath())
+    except Exception:
+        pass
+    for env in ("LOCALAPPDATA", "TEMP", "TMP"):
+        root = os.environ.get(env)
+        if root:
+            candidates.append(os.path.join(root, "Temp", "gen_py"))
+            candidates.append(os.path.join(root, "gen_py"))
+    seen = set()
+    for path in candidates:
+        if not path:
+            continue
+        path = os.path.normpath(path)
+        if path in seen:
+            continue
+        seen.add(path)
+        if os.path.isdir(path):
+            shutil.rmtree(path, ignore_errors=True)
 
-    Dynamic dispatch resolves every property and method by name at runtime and
-    never touches the win32com gen_py early-binding cache. This avoids the
-    frozen-build failures:
-      * ModuleNotFoundError: No module named 'win32com.gen_py'
-      * COM errors generating wrapper classes for sub-objects such as
-        PowerPoint.Application.Presentations
-    The full watermark chain (Presentations, TextFrame2, Fill.Transparency,
-    Rotation) works correctly under dynamic dispatch.
+
+def _ensure_powerpoint():
+    """EnsureDispatch with self-healing for stale gen_py caches.
+
+    When Office is updated, cached early-binding modules under
+    %TEMP%\\gen_py can mismatch the new type library and raise
+    AttributeError on 'MinorVersion' (or similar). Wipe the cache,
+    drop the stale modules from sys.modules, and retry.
     """
-    import win32com.client.dynamic
-    return win32com.client.dynamic.Dispatch("PowerPoint.Application")
+    try:
+        return gencache.EnsureDispatch("PowerPoint.Application")
+    except AttributeError:
+        pass
+    _purge_gen_py()
+    try:
+        return gencache.EnsureDispatch("PowerPoint.Application")
+    except AttributeError:
+        # Final fallback: skip early binding entirely. Loses a few
+        # advanced attributes but is enough for the watermark flow.
+        return win32com.client.Dispatch("PowerPoint.Application")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:

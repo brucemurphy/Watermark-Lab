@@ -1,6 +1,6 @@
 {
-  "version": "1.4.1",
-  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v1.4.1/WatermarkLab.zip",
+  "version": "1.4.2",
+  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v1.4.2/WatermarkLab.zip",
   "sha256": "",
-  "notes": "Fixes in v1.4.1:\n- Fixed PowerPoint watermarking crash on the packaged build (PowerPoint.Application.Presentations / win32com.gen_py)\n- PowerPoint now uses dynamic COM binding, no early-binding cache needed\n\nIncludes all v1.4.0 features:\n- Batch processing - watermark an entire folder in one click\n- Watermark presets - save and recall named configs\n- Recent files dropdown\n- Word document watermarking (.docx/.doc) with PDF export\n- Gold accent theme"
+  "notes": "Fixes in v1.4.2:\n- Restored the working PowerPoint COM handling from v1.3.0 (fixes CoInitialize and Presentations errors on the packaged build)\n\nIncludes all v1.4.0 features:\n- Batch processing - watermark an entire folder in one click\n- Watermark presets - save and recall named configs\n- Recent files dropdown\n- Word document watermarking (.docx/.doc) with PDF export\n- Gold accent theme"
 }

@@ -28,9 +28,6 @@ a = Analysis(
         'packaging', 'packaging.version',
         '_ffmpeg', '_updater', '_version', '_word', '_prefs',
         'docx', 'docx.oxml.ns', 'lxml', 'lxml.etree',
-        # win32com dynamic (late) COM binding for PowerPoint/Word automation.
-        'win32com', 'win32com.client', 'win32com.client.dynamic',
-        'pythoncom', 'pywintypes',
         'PIL._imaging',
         'PIL._imagingft',
         'PIL.Image',

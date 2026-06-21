@@ -19,8 +19,10 @@ from _ffmpeg import is_ffmpeg_cached, download_ffmpeg, FfmpegNotReadyError
 try:
     from tkinterdnd2 import TkinterDnD, DND_FILES
     _DND_AVAILABLE = True
-except ImportError:
+    _BASE_TK = TkinterDnD.Tk          # drag-and-drop enabled root
+except Exception:
     _DND_AVAILABLE = False
+    _BASE_TK = tk.Tk                  # plain root; drag-and-drop disabled
 
 PPT_EXTS = {".pptx", ".ppt"}
 ALL_SUPPORTED = PPT_EXTS | WORD_EXTS | VIDEO_EXTS
@@ -284,10 +286,8 @@ def _set_window_icon(win: tk.Misc) -> None:
             pass
 
 
-class WatermarkApp(tk.Tk):
+class WatermarkApp(_BASE_TK):
     def __init__(self):
-        if _DND_AVAILABLE:
-            TkinterDnD.init(self)
         super().__init__()
         self.title(f"Watermark Lab  v{APP_VERSION}")
         self.resizable(False, False)

@@ -73,7 +73,22 @@ jobs:
         shell: pwsh
 
       # -----------------------------------------------------------------------
-      # 8. Create GitHub Release and attach WatermarkLab.zip
+      # 8. Delete any pre-existing release for this tag so the body/notes are
+      #    always regenerated fresh. action-gh-release does NOT overwrite the
+      #    body of an existing release, so we remove it first. The tag itself
+      #    is kept. Uses GITHUB_TOKEN which has release write permission.
+      # -----------------------------------------------------------------------
+      - name: Delete existing release (if any)
+        run: |
+          gh release delete "${{ github.ref_name }}" --yes --cleanup-tag=false 2>$null
+          echo "done"
+        shell: pwsh
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # -----------------------------------------------------------------------
+      # 9. Create GitHub Release and attach WatermarkLab.zip
       #    The in-app updater queries the GitHub Releases API at runtime to
       #    find this asset and download it automatically.
       # -----------------------------------------------------------------------

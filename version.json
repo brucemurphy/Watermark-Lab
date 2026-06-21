@@ -2,5 +2,5 @@
   "version": "1.4.0",
   "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v1.4.0/WatermarkLab.zip",
   "sha256": "",
-  "notes": "New in v1.4.0:\n- Excel workbook watermarking (.xlsx/.xls/.xlsm)\n- Batch processing - watermark an entire folder at once\n- Watermark presets - save and recall named configurations\n- Recent files dropdown on the file picker\n- Drag and drop files onto the window (requires tkinterdnd2)"
+  "notes": "New in v1.4.0:\n- Batch processing - watermark an entire folder in one click\n- Watermark presets - save and recall named text/color/transparency configs\n- Recent files dropdown on the file picker\n- Drag and drop a file onto the window\n- Word document watermarking (.docx/.doc) with PDF export\n- Gold accent theme refresh\n- Centered window on launch and various UI polish"
 }

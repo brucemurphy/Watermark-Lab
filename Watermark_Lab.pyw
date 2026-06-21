@@ -1,4 +1,4 @@
-"""Watermark Lab - Tkinter GUI for PowerPoint, Word, Excel and video watermarking."""
+"""Watermark Lab - Tkinter GUI for PowerPoint, Word and video watermarking."""
 import os
 import shutil
 import subprocess
@@ -9,7 +9,6 @@ from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 
 from _powerpoint import add_watermark
 from _word import add_word_watermark, WORD_EXTS
-from _excel import add_excel_watermark, EXCEL_EXTS
 from _video import add_video_watermark, is_video_file, VIDEO_EXTS
 from _prefs import load_presets, save_preset, delete_preset, load_recent, add_recent
 from _version import APP_VERSION
@@ -24,7 +23,7 @@ except ImportError:
     _DND_AVAILABLE = False
 
 PPT_EXTS = {".pptx", ".ppt"}
-ALL_SUPPORTED = PPT_EXTS | WORD_EXTS | EXCEL_EXTS | VIDEO_EXTS
+ALL_SUPPORTED = PPT_EXTS | WORD_EXTS | VIDEO_EXTS
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SPLASH_IMAGE = os.path.join(SCRIPT_DIR, "SplashLab.png")
 ICON_ICO = os.path.join(SCRIPT_DIR, "Watermark.ico")
@@ -38,9 +37,10 @@ DARK_FIELD = "#2d2d30"
 DARK_BORDER = "#3f3f46"
 DARK_FG = "#e6e6e6"
 DARK_MUTED = "#a0a0a0"
-ACCENT = "#0a84ff"
-ACCENT_HOVER = "#1f8fff"
-ACCENT_ACTIVE = "#0066cc"
+ACCENT = "#FDC301"          # gold
+ACCENT_HOVER = "#ffce33"     # lighter gold
+ACCENT_ACTIVE = "#d9a600"    # darker gold
+ACCENT_FG = "#1e1e1e"        # text/icon color on top of the accent (dark for gold)
 
 
 def _apply_dark_theme(root: tk.Tk) -> None:
@@ -72,6 +72,19 @@ def _apply_dark_theme(root: tk.Tk) -> None:
         fieldbackground=[("focus", DARK_FIELD)],
         bordercolor=[("focus", ACCENT)],
     )
+    style.configure("TCombobox",
+        fieldbackground=DARK_FIELD, foreground=DARK_FG,
+        background=DARK_PANEL, selectbackground=DARK_FIELD,
+        selectforeground=DARK_FG, bordercolor=DARK_BORDER,
+        lightcolor=DARK_BORDER, darkcolor=DARK_BORDER,
+        arrowcolor=DARK_FG, padding=4,
+    )
+    style.map("TCombobox",
+        fieldbackground=[("readonly", DARK_FIELD), ("focus", DARK_FIELD)],
+        foreground=[("readonly", DARK_FG)],
+        bordercolor=[("focus", ACCENT)],
+        selectbackground=[("readonly", DARK_FIELD)],
+    )
     style.configure("TButton",
         background=DARK_PANEL, foreground=DARK_FG,
         bordercolor=DARK_BORDER, padding=(10, 5), relief="flat",
@@ -81,7 +94,7 @@ def _apply_dark_theme(root: tk.Tk) -> None:
         foreground=[("disabled", DARK_MUTED)],
     )
     style.configure("Accent.TButton",
-        background=ACCENT, foreground="#ffffff",
+        background=ACCENT, foreground=ACCENT_FG,
         bordercolor=ACCENT, padding=(12, 6), relief="flat",
     )
     style.map("Accent.TButton",
@@ -90,8 +103,17 @@ def _apply_dark_theme(root: tk.Tk) -> None:
         foreground=[("disabled", DARK_MUTED)],
     )
     style.configure("Horizontal.TScale",
-        background=DARK_BG, troughcolor=DARK_FIELD,
+        background=ACCENT, troughcolor=DARK_FIELD,
+        bordercolor=DARK_BORDER, lightcolor=ACCENT, darkcolor=ACCENT,
     )
+    style.map("Horizontal.TScale",
+        background=[("active", ACCENT_HOVER), ("pressed", ACCENT_ACTIVE)],
+    )
+    # Style the combobox dropdown listbox popup
+    root.option_add("*TCombobox*Listbox.background",   DARK_FIELD)
+    root.option_add("*TCombobox*Listbox.foreground",   DARK_FG)
+    root.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+    root.option_add("*TCombobox*Listbox.selectForeground", ACCENT_FG)
     style.configure("Dark.TCheckbutton",
         background=DARK_BG, foreground=DARK_FG,
         focuscolor=ACCENT, indicatorcolor=DARK_FIELD,
@@ -117,6 +139,132 @@ def _apply_dark_theme(root: tk.Tk) -> None:
                 pass
     except Exception:
         pass
+
+
+class _Tooltip:
+    """Dark-themed tooltip that appears after a short hover delay.
+
+    Pass either text_fn (plain string) or render_fn(parent_frame) for a
+    custom, richly-formatted body.
+    """
+    _DELAY_MS = 500
+
+    def __init__(self, widget: tk.Widget, text_fn=None, render_fn=None):
+        self._widget    = widget
+        self._text_fn   = text_fn
+        self._render_fn = render_fn
+        self._win       = None
+        self._after     = None
+        widget.bind("<Enter>",       self._on_enter,  add="+")
+        widget.bind("<Leave>",       self._on_leave,  add="+")
+        widget.bind("<ButtonPress>", self._on_leave,  add="+")
+
+    def _on_enter(self, _evt=None):
+        self._after = self._widget.after(self._DELAY_MS, self._show)
+
+    def _on_leave(self, _evt=None):
+        if self._after:
+            self._widget.after_cancel(self._after)
+            self._after = None
+        self._hide()
+
+    def _show(self):
+        if self._render_fn is None and not (self._text_fn and self._text_fn()):
+            return
+        self._hide()
+        x = self._widget.winfo_rootx()
+        y = self._widget.winfo_rooty() + self._widget.winfo_height() + 6
+        self._win = tw = tk.Toplevel(self._widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        try:
+            tw.wm_attributes("-alpha", 0.97)
+        except tk.TclError:
+            pass
+
+        # Outer border frame (acts as a thin 1px outline)
+        outer = tk.Frame(tw, bg=DARK_BORDER, bd=0)
+        outer.pack()
+        # Accent strip down the left edge
+        strip = tk.Frame(outer, bg=ACCENT, width=4)
+        strip.pack(side="left", fill="y")
+        # Inner content panel
+        body = tk.Frame(outer, bg=DARK_PANEL, bd=0)
+        body.pack(side="left", fill="both")
+
+        if self._render_fn is not None:
+            self._render_fn(body)
+        else:
+            tk.Label(
+                body, text=self._text_fn(), bg=DARK_PANEL, fg=DARK_FG,
+                font=("Segoe UI", 9), padx=12, pady=8,
+                wraplength=620, justify="left",
+            ).pack()
+        tw.lift()
+
+    def _hide(self):
+        if self._win:
+            try:
+                self._win.destroy()
+            except Exception:
+                pass
+            self._win = None
+
+
+# Structured supported-types data for the help tooltip
+_SUPPORTED_TYPES = [
+    ("PowerPoint", ".pptx  .ppt", "tiled diagonal watermark on every slide"),
+    ("Word",       ".docx  .doc", "native diagonal watermark on every page"),
+    ("Video",      ".mp4  .mov  .m4v  .mkv  .avi  .webm", "overlay via ffmpeg"),
+]
+
+
+def _render_supported_types(parent: tk.Frame) -> None:
+    """Build the richly-formatted supported file types tooltip body."""
+    pad_x = 14
+    # Title
+    tk.Label(
+        parent, text="Supported file types", bg=DARK_PANEL, fg=DARK_FG,
+        font=("Segoe UI Semibold", 10, "bold"), justify="left",
+    ).grid(row=0, column=0, sticky="w", padx=pad_x, pady=(10, 2))
+    # Divider
+    tk.Frame(parent, bg=DARK_BORDER, height=1).grid(
+        row=1, column=0, sticky="we", padx=pad_x, pady=(2, 6))
+
+    r = 2
+    for name, exts, desc in _SUPPORTED_TYPES:
+        row = tk.Frame(parent, bg=DARK_PANEL)
+        row.grid(row=r, column=0, sticky="w", padx=pad_x, pady=(0, 6))
+        tk.Label(row, text=name, bg=DARK_PANEL, fg=ACCENT,
+                 font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        line = tk.Frame(row, bg=DARK_PANEL)
+        line.pack(anchor="w")
+        tk.Label(line, text=exts, bg=DARK_PANEL, fg=DARK_FG,
+                 font=("Consolas", 9)).pack(side="left")
+        tk.Label(line, text=f"   {desc}", bg=DARK_PANEL, fg=DARK_MUTED,
+                 font=("Segoe UI", 9, "italic")).pack(side="left")
+        r += 1
+
+    # Footer note
+    tk.Frame(parent, bg=DARK_BORDER, height=1).grid(
+        row=r, column=0, sticky="we", padx=pad_x, pady=(2, 6)); r += 1
+    tk.Label(
+        parent, text="PDF export available for PowerPoint and Word",
+        bg=DARK_PANEL, fg=DARK_MUTED, font=("Segoe UI", 8, "italic"),
+        justify="left",
+    ).grid(row=r, column=0, sticky="w", padx=pad_x, pady=(0, 10))
+
+
+def _shorten_path(path: str, max_len: int = 70) -> str:
+    """Middle-truncate a path so it fits the app width while keeping the
+    drive root and filename visible. e.g.
+    C:\\Users\\bruce...\\Update Monitor\\file_watermarked.mp4
+    """
+    if len(path) <= max_len:
+        return path
+    head = path[:12]                       # drive + start, e.g. "C:\Users\bru"
+    tail = path[-(max_len - len(head) - 3):]  # keep the end (folder + filename)
+    return f"{head}...{tail}"
 
 
 def _set_window_icon(win: tk.Misc) -> None:
@@ -159,6 +307,18 @@ class WatermarkApp(tk.Tk):
         self._build_ui()
         self._refresh_presets()
         self._refresh_recent()
+        self._center_on_screen()
+
+    def _center_on_screen(self):
+        """Position the window centred on screen, matching the splash location."""
+        self.update_idletasks()
+        w = self.winfo_width()
+        h = self.winfo_height()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        self.geometry(f"+{x}+{y}")
 
     def _build_ui(self):
         pad = {"padx": 8, "pady": 5}
@@ -166,32 +326,46 @@ class WatermarkApp(tk.Tk):
         frm.grid(row=0, column=0, padx=14, pady=(16, 12))
 
         # ── Row 0: File picker ───────────────────────────────────────────
-        ttk.Label(frm, text="File:").grid(row=0, column=0, sticky="w", **pad)
+        file_lbl_frm = ttk.Frame(frm, borderwidth=0, relief="flat")
+        file_lbl_frm.grid(row=0, column=0, sticky="w", **pad)
+        ttk.Label(file_lbl_frm, text="File:").pack(side="left")
+        help_badge = tk.Label(
+            file_lbl_frm, text="\u24D8",  # circled lower-case i
+            font=("Segoe UI", 9),
+            bg=DARK_BG, fg=DARK_MUTED,
+            relief="flat", bd=0, padx=0, pady=0, cursor="arrow",
+        )
+        help_badge.pack(side="left", padx=(4, 0), pady=(3, 0))
+        _Tooltip(help_badge, render_fn=_render_supported_types)
+
         self.file_combo = ttk.Combobox(frm, textvariable=self.file_var,
-                                       width=48, state="normal")
+                                       width=48, state="normal",
+                                       style="File.TCombobox",
+                                       postcommand=lambda: self._widen_dropdown(self.file_combo, "File.TCombobox"))
         self.file_combo.grid(row=0, column=1, **pad)
         self.file_combo.bind("<<ComboboxSelected>>", self._on_recent_selected)
-
-        btn_frm = ttk.Frame(frm, borderwidth=0, relief="flat")
-        btn_frm.grid(row=0, column=2, **pad)
-        ttk.Button(btn_frm, text="Browse…", command=self._pick_file).pack(side="left", padx=(0, 4))
-        ttk.Button(btn_frm, text="Batch…",  command=self._pick_batch).pack(side="left")
+        ttk.Button(frm, text="Browse…", command=self._pick_file).grid(row=0, column=2, sticky="we", **pad)
+        ttk.Button(frm, text="Folder…", command=self._pick_batch).grid(row=0, column=3, sticky="we", **pad)
 
         # ── Row 1: Watermark text ────────────────────────────────────────
         ttk.Label(frm, text="Watermark text:").grid(row=1, column=0, sticky="w", **pad)
-        ttk.Entry(frm, textvariable=self.text_var, width=50).grid(
-            row=1, column=1, columnspan=2, sticky="we", **pad)
+        ttk.Entry(frm, textvariable=self.text_var, width=48).grid(
+            row=1, column=1, sticky="we", **pad)
 
         # ── Row 2: Presets ───────────────────────────────────────────────
-        ttk.Label(frm, text="Preset:").grid(row=2, column=0, sticky="w", **pad)
-        preset_frm = ttk.Frame(frm, borderwidth=0, relief="flat")
-        preset_frm.grid(row=2, column=1, columnspan=2, sticky="w", **pad)
-        self.preset_combo = ttk.Combobox(preset_frm, textvariable=self._preset_var,
-                                         width=28, state="readonly")
-        self.preset_combo.pack(side="left", padx=(0, 6))
+        ttk.Label(frm, text="Saved presets:").grid(row=2, column=0, sticky="w", **pad)
+        self.preset_combo = ttk.Combobox(frm, textvariable=self._preset_var,
+                                         width=48, state="readonly",
+                                         style="Preset.TCombobox",
+                                         postcommand=lambda: self._widen_dropdown(self.preset_combo, "Preset.TCombobox"))
+        self.preset_combo.grid(row=2, column=1, **pad)
         self.preset_combo.bind("<<ComboboxSelected>>", self._load_preset)
-        ttk.Button(preset_frm, text="Save",   command=self._save_preset).pack(side="left", padx=(0, 4))
-        ttk.Button(preset_frm, text="Delete", command=self._delete_preset).pack(side="left")
+        ttk.Button(frm, text="Save",   command=self._save_preset).grid(row=2, column=2, sticky="we", **pad)
+        ttk.Button(frm, text="Delete", command=self._delete_preset).grid(row=2, column=3, sticky="we", **pad)
+
+        # Tooltips for truncated fields — hover shows the full text
+        _Tooltip(self.file_combo,   lambda: self.file_var.get())
+        _Tooltip(self.preset_combo, lambda: self._preset_var.get())
 
         # ── Row 3: Color picker ──────────────────────────────────────────
         ttk.Label(frm, text="Text color:").grid(row=3, column=0, sticky="w", **pad)
@@ -201,26 +375,26 @@ class WatermarkApp(tk.Tk):
             highlightbackground=DARK_BORDER,
         )
         self.color_swatch.grid(row=3, column=1, sticky="w", **pad)
-        ttk.Button(frm, text="Choose color…", command=self._pick_color).grid(row=3, column=2, **pad)
+        ttk.Button(frm, text="Color…", command=self._pick_color).grid(row=3, column=2, sticky="we", **pad)
 
         # ── Row 4: Transparency ──────────────────────────────────────────
         ttk.Label(frm, text="Transparency (%):").grid(row=4, column=0, sticky="w", **pad)
         slider = ttk.Scale(frm, from_=0, to=100, orient="horizontal",
                            variable=self.transparency_var,
                            command=self._update_trans_label)
-        slider.grid(row=4, column=1, sticky="we", **pad)
+        slider.grid(row=4, column=1, columnspan=2, sticky="we", **pad)
         self.trans_label = ttk.Label(frm, text="70%")
-        self.trans_label.grid(row=4, column=2, sticky="w", **pad)
+        self.trans_label.grid(row=4, column=3, sticky="w", **pad)
 
         # ── Row 5: PDF export ────────────────────────────────────────────
         self.pdf_check = tk.Checkbutton(
-            frm, text="Also export PDF (PowerPoint / Word / Excel only)",
+            frm, text="Also export PDF (PowerPoint / Word only)",
             variable=self.export_pdf_var,
             bg=DARK_BG, fg=DARK_FG,
             activebackground=DARK_BG, activeforeground=DARK_FG,
             selectcolor=DARK_FIELD, relief="flat", bd=0, highlightthickness=0,
         )
-        self.pdf_check.grid(row=5, column=1, columnspan=2, sticky="w", **pad)
+        self.pdf_check.grid(row=5, column=1, columnspan=3, sticky="w", **pad)
 
         # ── Row 6: Open after ────────────────────────────────────────────
         self.open_file_check = tk.Checkbutton(
@@ -229,12 +403,13 @@ class WatermarkApp(tk.Tk):
             bg=DARK_BG, fg=DARK_FG,
             activebackground=DARK_BG, activeforeground=DARK_FG,
             selectcolor=DARK_FIELD, relief="flat", bd=0, highlightthickness=0,
+            disabledforeground=DARK_MUTED,
         )
-        self.open_file_check.grid(row=6, column=1, columnspan=2, sticky="w", **pad)
+        self.open_file_check.grid(row=6, column=1, columnspan=3, sticky="w", **pad)
 
         # ── Row 7: Action buttons ────────────────────────────────────────
         btns = ttk.Frame(frm, borderwidth=0, relief="flat")
-        btns.grid(row=7, column=0, columnspan=3, pady=(12, 4))
+        btns.grid(row=7, column=0, columnspan=4, pady=(12, 4))
         self.run_btn = ttk.Button(btns, text="Apply Watermark",
                                   command=self._run, style="Accent.TButton")
         self.run_btn.pack(side="left", padx=6)
@@ -242,10 +417,15 @@ class WatermarkApp(tk.Tk):
 
         # ── Row 8: Status row ────────────────────────────────────────────
         status_frm = ttk.Frame(frm, borderwidth=0, relief="flat")
-        status_frm.grid(row=8, column=0, columnspan=3, sticky="w", **pad)
+        status_frm.grid(row=8, column=0, columnspan=4, sticky="ew", **pad)
+        status_frm.columnconfigure(0, weight=1)
+
+        # Inner frame holds icon + text together and is centred in the row
+        inner = ttk.Frame(status_frm, borderwidth=0, relief="flat")
+        inner.grid(row=0, column=0)
 
         self.folder_btn = tk.Button(
-            status_frm, text="\U0001F4C2",
+            inner, text="\U0001F4C2",
             font=("Segoe UI Emoji", 11),
             bg=DARK_BG, fg=DARK_BG,
             activebackground=DARK_BG, activeforeground=DARK_BG,
@@ -255,7 +435,7 @@ class WatermarkApp(tk.Tk):
         self.folder_btn.grid(row=0, column=0, padx=(0, 4), pady=(5, 0), sticky="s")
 
         self.status_var = tk.StringVar(value="Ready.")
-        ttk.Label(status_frm, textvariable=self.status_var,
+        ttk.Label(inner, textvariable=self.status_var,
                   style="Muted.TLabel").grid(row=0, column=1, pady=(0, 2), sticky="ws")
 
         # ── Drag and drop ────────────────────────────────────────────────
@@ -264,8 +444,50 @@ class WatermarkApp(tk.Tk):
             self.file_combo.dnd_bind("<<Drop>>", self._on_drop)
 
     def _open_output_folder(self):
-        if self._last_output_path and os.path.exists(self._last_output_path):
-            subprocess.Popen(["explorer", "/select,", self._last_output_path])
+        target = self._last_output_path
+        if not target or not os.path.exists(target):
+            return
+        target = os.path.normpath(target)  # explorer needs backslashes
+        if os.path.isdir(target):
+            # Batch result — open the folder itself
+            subprocess.Popen(["explorer", target])
+        else:
+            # Single file — open its folder with the file selected
+            subprocess.Popen(["explorer", "/select,", target])
+
+    def _show_folder_btn(self):
+        """Make the output-folder icon visible and clickable."""
+        self.folder_btn.configure(
+            fg=DARK_FG, activebackground=DARK_BORDER,
+            activeforeground=DARK_FG, cursor="hand2",
+        )
+
+    def _hide_folder_btn(self):
+        """Hide the output-folder icon (blends into the background)."""
+        self._last_output_path = None
+        self.folder_btn.configure(
+            fg=DARK_BG, activebackground=DARK_BG,
+            activeforeground=DARK_BG, cursor="",
+        )
+
+    def _widen_dropdown(self, combo: ttk.Combobox, style_name: str):
+        """Extend the dropdown width to fit the longest item using ttk's
+        documented 'postoffset' style option (x, y, width_delta, height_delta)."""
+        values = combo["values"]
+        if not values:
+            return
+        try:
+            import tkinter.font as tkfont
+            font = tkfont.nametofont("TkTextFont")
+            longest_px = max((font.measure(str(v)) for v in values), default=0)
+            entry_px   = combo.winfo_width()
+            # Extra width needed beyond the entry box (plus scrollbar + padding)
+            extra = max(0, longest_px - entry_px + 40)
+            extra = min(extra, 500)  # never run absurdly wide
+            style = ttk.Style(self)
+            style.configure(style_name, postoffset=(0, 0, extra, 0))
+        except Exception:
+            pass
 
     # ── Recent files ─────────────────────────────────────────────────────
 
@@ -328,6 +550,7 @@ class WatermarkApp(tk.Tk):
         folder = filedialog.askdirectory(title="Select folder to batch watermark")
         if not folder:
             return
+        folder = os.path.normpath(folder)  # askdirectory returns forward slashes
         files = [
             os.path.join(folder, f) for f in os.listdir(folder)
             if os.path.splitext(f)[1].lower() in ALL_SUPPORTED
@@ -338,9 +561,9 @@ class WatermarkApp(tk.Tk):
         msg = f"Found {len(files)} supported file(s) in:\n{folder}\n\nWatermark all of them?"
         if not messagebox.askyesno("Batch Watermark", msg, parent=self):
             return
-        self._run_batch(files)
+        self._run_batch(files, folder)
 
-    def _run_batch(self, files):
+    def _run_batch(self, files, folder):
         text         = self.text_var.get().strip()
         color_rgb    = int(self.color_hex.lstrip("#"), 16)
         transparency = max(0.0, min(1.0, self.transparency_var.get() / 100.0))
@@ -351,6 +574,8 @@ class WatermarkApp(tk.Tk):
             return
 
         self.run_btn.configure(state="disabled")
+        self.open_file_check.configure(state="disabled")
+        self._hide_folder_btn()
         self.status_var.set(f"Batch: processing 0 / {len(files)}…")
         self.configure(cursor="watch")
         self.update_idletasks()
@@ -368,23 +593,24 @@ class WatermarkApp(tk.Tk):
                     elif ext in WORD_EXTS:
                         add_word_watermark(path, text, color_rgb=color_rgb,
                                            transparency=transparency, export_pdf=export_pdf)
-                    elif ext in EXCEL_EXTS:
-                        add_excel_watermark(path, text, color_rgb=color_rgb,
-                                            transparency=transparency, export_pdf=export_pdf)
                     elif ext in VIDEO_EXTS or is_video_file(path):
                         add_video_watermark(path, text, color_rgb=color_rgb,
                                             transparency=transparency)
                     done += 1
                 except Exception as e:
                     errors.append(f"{os.path.basename(path)}: {e}")
-            self.after(0, self._on_batch_done, done, errors)
+            self.after(0, self._on_batch_done, done, errors, folder)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_batch_done(self, done, errors):
+    def _on_batch_done(self, done, errors, folder):
         self.run_btn.configure(state="normal")
+        self.open_file_check.configure(state="normal")
         self.configure(cursor="")
         self.bell()
+        if done:
+            self._last_output_path = folder
+            self._show_folder_btn()
         msg = f"Batch complete: {done} file(s) watermarked."
         if errors:
             msg += f"\n\n{len(errors)} error(s):\n" + "\n".join(errors[:10])
@@ -396,11 +622,10 @@ class WatermarkApp(tk.Tk):
             title="Select file to watermark",
             filetypes=[
                 ("Supported files",
-                 "*.pptx *.ppt *.docx *.doc *.xlsx *.xls *.xlsm "
+                 "*.pptx *.ppt *.docx *.doc "
                  "*.mp4 *.mov *.m4v *.mkv *.avi *.webm"),
                 ("PowerPoint files", "*.pptx *.ppt"),
                 ("Word documents",   "*.docx *.doc"),
-                ("Excel workbooks",  "*.xlsx *.xls *.xlsm"),
                 ("Video files",      "*.mp4 *.mov *.m4v *.mkv *.avi *.webm"),
                 ("All files", "*.*"),
             ],
@@ -438,15 +663,13 @@ class WatermarkApp(tk.Tk):
             mode = "ppt"
         elif ext in WORD_EXTS:
             mode = "word"
-        elif ext in EXCEL_EXTS:
-            mode = "excel"
         elif ext in VIDEO_EXTS or is_video_file(path):
             mode = "video"
         else:
             messagebox.showerror(
                 "Unsupported file",
                 f"Unsupported file type: {ext}\n\n"
-                "Supported: .pptx .ppt .docx .doc .xlsx .xls .xlsm "
+                "Supported: .pptx .ppt .docx .doc "
                 ".mp4 .mov .m4v .mkv .avi .webm",
             )
             return
@@ -455,12 +678,11 @@ class WatermarkApp(tk.Tk):
         transparency = max(0.0, min(1.0, self.transparency_var.get() / 100.0))
 
         self.run_btn.configure(state="disabled")
+        self._hide_folder_btn()
         if mode == "ppt":
             self.status_var.set("Working… PowerPoint is processing the file.")
         elif mode == "word":
             self.status_var.set("Working… Word is processing the document.")
-        elif mode == "excel":
-            self.status_var.set("Working… Excel is processing the workbook.")
         else:
             self.status_var.set("Working… ffmpeg is encoding the video.")
         self.configure(cursor="watch")
@@ -477,11 +699,6 @@ class WatermarkApp(tk.Tk):
                     )
                 elif mode == "word":
                     output_path = add_word_watermark(
-                        path, text, color_rgb=color_rgb, transparency=transparency,
-                        export_pdf=bool(self.export_pdf_var.get()),
-                    )
-                elif mode == "excel":
-                    output_path = add_excel_watermark(
                         path, text, color_rgb=color_rgb, transparency=transparency,
                         export_pdf=bool(self.export_pdf_var.get()),
                     )
@@ -601,11 +818,8 @@ class WatermarkApp(tk.Tk):
         self.configure(cursor="")
         if err is None:
             self._last_output_path = output_path
-            self.folder_btn.configure(
-                fg=DARK_FG, activebackground=DARK_BORDER,
-                activeforeground=DARK_FG, cursor="hand2"
-            )
-            self.status_var.set(f"Done. Saved: {output_path}")
+            self._show_folder_btn()
+            self.status_var.set(f"Done. Saved: {_shorten_path(output_path)}")
             self.bell()
             pdf_path = os.path.splitext(output_path)[0] + ".pdf"
             pdf_exported = self.export_pdf_var.get() and os.path.isfile(pdf_path)
@@ -630,10 +844,7 @@ class WatermarkApp(tk.Tk):
                         except Exception:
                             pass
         else:
-            self.folder_btn.configure(
-                fg=DARK_BG, activebackground=DARK_BG,
-                activeforeground=DARK_BG, cursor=""
-            )
+            self._hide_folder_btn()
             self.status_var.set(f"Error: {err}")
             messagebox.showerror("Error", str(err))
 

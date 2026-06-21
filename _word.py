@@ -4,6 +4,7 @@ Injects the exact header XML that Word's Design -> Watermark writes,
 per the ECMA-376 Office Open XML specification. No COM shape positioning.
 """
 import os, subprocess, sys, zipfile, shutil, tempfile
+import pythoncom
 import win32com.client
 from lxml import etree
 from docx import Document
@@ -94,24 +95,31 @@ def add_word_watermark(doc_path, watermark_text, color_rgb=0xA6A6A6,
     if not os.path.isfile(doc_path):
         raise FileNotFoundError(doc_path)
 
-    base, ext = os.path.splitext(doc_path)
+    # Initialise COM for this thread. add_word_watermark runs on a background
+    # worker thread in the GUI; the .doc conversion and PDF export use Word
+    # COM, which must be initialised per-thread.
+    pythoncom.CoInitialize()
+    try:
+        base, ext = os.path.splitext(doc_path)
 
-    # .doc -> convert to docx first via COM
-    if ext.lower() == ".doc":
-        doc_path = _convert_doc_to_docx(doc_path)
-        base = os.path.splitext(doc_path)[0]
+        # .doc -> convert to docx first via COM
+        if ext.lower() == ".doc":
+            doc_path = _convert_doc_to_docx(doc_path)
+            base = os.path.splitext(doc_path)[0]
 
-    output_path = _next_available(base, "_watermarked", ".docx")
-    color_hex   = "#{:06x}".format(color_rgb)
+        output_path = _next_available(base, "_watermarked", ".docx")
+        color_hex   = "#{:06x}".format(color_rgb)
 
-    doc = Document(doc_path)
-    _inject(doc, watermark_text, color_hex)
-    doc.save(output_path)
+        doc = Document(doc_path)
+        _inject(doc, watermark_text, color_hex)
+        doc.save(output_path)
 
-    if export_pdf:
-        _pdf_via_com(output_path)
+        if export_pdf:
+            _pdf_via_com(output_path)
 
-    return output_path
+        return output_path
+    finally:
+        pythoncom.CoUninitialize()
 
 
 def _inject(doc, text, color_hex):

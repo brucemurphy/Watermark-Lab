@@ -2,6 +2,7 @@ import os
 import shutil
 import subprocess
 import sys
+import pythoncom
 import win32com.client
 from win32com.client import gencache
 
@@ -30,6 +31,20 @@ def add_watermark(ppt_path, watermark_text, color_rgb=0xA6A6A6, transparency=0.7
     base, ext = os.path.splitext(ppt_path)
     output_path = _next_available(base, "_watermarked", ext or ".pptx")
 
+    # Initialise COM for this thread. add_watermark runs on a background
+    # worker thread in the GUI, and COM must be initialised per-thread or
+    # every dispatch fails with "CoInitialize has not been called".
+    pythoncom.CoInitialize()
+    try:
+        return _do_watermark(
+            ppt_path, watermark_text, output_path, color_rgb, transparency, export_pdf
+        )
+    finally:
+        pythoncom.CoUninitialize()
+
+
+def _do_watermark(ppt_path, watermark_text, output_path, color_rgb, transparency,
+                  export_pdf):
     # Launch PowerPoint (early-bound so Font.Fill / Transparency are exposed)
     powerpoint = _ensure_powerpoint()
     # Keep the application window hidden during processing.

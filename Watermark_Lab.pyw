@@ -15,15 +15,6 @@ from _version import APP_VERSION
 from _updater import check_for_update_async, apply_update, cleanup_old_exe
 from _ffmpeg import is_ffmpeg_cached, download_ffmpeg, FfmpegNotReadyError
 
-# Optional drag-and-drop support via tkinterdnd2
-try:
-    from tkinterdnd2 import TkinterDnD, DND_FILES
-    _DND_AVAILABLE = True
-    _BASE_TK = TkinterDnD.Tk          # drag-and-drop enabled root
-except Exception:
-    _DND_AVAILABLE = False
-    _BASE_TK = tk.Tk                  # plain root; drag-and-drop disabled
-
 PPT_EXTS = {".pptx", ".ppt"}
 ALL_SUPPORTED = PPT_EXTS | WORD_EXTS | VIDEO_EXTS
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -286,7 +277,7 @@ def _set_window_icon(win: tk.Misc) -> None:
             pass
 
 
-class WatermarkApp(_BASE_TK):
+class WatermarkApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(f"Watermark Lab  v{APP_VERSION}")
@@ -438,11 +429,6 @@ class WatermarkApp(_BASE_TK):
         ttk.Label(inner, textvariable=self.status_var,
                   style="Muted.TLabel").grid(row=0, column=1, pady=(0, 2), sticky="ws")
 
-        # ── Drag and drop ────────────────────────────────────────────────
-        if _DND_AVAILABLE:
-            self.file_combo.drop_target_register(DND_FILES)
-            self.file_combo.dnd_bind("<<Drop>>", self._on_drop)
-
     def _open_output_folder(self):
         target = self._last_output_path
         if not target or not os.path.exists(target):
@@ -498,11 +484,7 @@ class WatermarkApp(_BASE_TK):
     def _on_recent_selected(self, _evt=None):
         pass  # value already set by combobox selection
 
-    def _on_drop(self, event):
-        path = event.data.strip().strip("{}")
-        self.file_var.set(path)
-
-    # ── Presets ───────────────────────────────────────────────────────────
+    # ── Presets ─────────────────────────────────────────
 
     def _refresh_presets(self):
         self._presets = load_presets()

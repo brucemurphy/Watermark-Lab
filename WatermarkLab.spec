@@ -12,36 +12,29 @@
 #   time, so neither problem applies.
 
 import os
-from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
-
-# Collect tkinterdnd2 (pure-python wrapper + native tkdnd library) so the
-# bundled exe supports drag-and-drop. collect_all returns (datas, binaries,
-# hiddenimports) tuples we merge into the Analysis below.
-_dnd_datas, _dnd_binaries, _dnd_hiddenimports = collect_all('tkinterdnd2')
 
 a = Analysis(
     ['Watermark_Lab.pyw'],
     pathex=[SPECPATH],
-    binaries=_dnd_binaries,
+    binaries=[],
     datas=[
         ('SplashLab.png',  '.'),
         ('Watermark.png',  '.'),
         ('Watermark.ico',  '.'),
-    ] + _dnd_datas,
+    ],
     hiddenimports=[
         'packaging', 'packaging.version',
         '_ffmpeg', '_updater', '_version', '_word', '_prefs',
         'docx', 'docx.oxml.ns', 'lxml', 'lxml.etree',
-        'tkinterdnd2',
         'PIL._imaging',
         'PIL._imagingft',
         'PIL.Image',
         'PIL.ImageDraw',
         'PIL.ImageFont',
         'PIL.PngImagePlugin',
-    ] + _dnd_hiddenimports,
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

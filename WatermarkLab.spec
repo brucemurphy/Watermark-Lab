@@ -28,11 +28,8 @@ a = Analysis(
         'packaging', 'packaging.version',
         '_ffmpeg', '_updater', '_version', '_word', '_prefs',
         'docx', 'docx.oxml.ns', 'lxml', 'lxml.etree',
-        # win32com early-binding (gencache) machinery — needed so PowerPoint
-        # COM can generate its gen_py wrappers at runtime in the frozen build.
-        'win32com', 'win32com.client', 'win32com.client.gencache',
-        'win32com.client.makepy', 'win32com.client.genpy',
-        'win32com.client.build', 'win32com.client.selecttlb',
+        # win32com dynamic (late) COM binding for PowerPoint/Word automation.
+        'win32com', 'win32com.client', 'win32com.client.dynamic',
         'pythoncom', 'pywintypes',
         'PIL._imaging',
         'PIL._imagingft',

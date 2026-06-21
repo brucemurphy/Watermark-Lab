@@ -199,24 +199,55 @@ def _purge_gen_py():
             shutil.rmtree(path, ignore_errors=True)
 
 
-def _ensure_powerpoint():
-    """EnsureDispatch with self-healing for stale gen_py caches.
+def _prepare_gen_py_writable():
+    """Ensure win32com can create its gen_py cache in a writable folder.
 
-    When Office is updated, cached early-binding modules under
-    %TEMP%\\gen_py can mismatch the new type library and raise
-    AttributeError on 'MinorVersion' (or similar). Wipe the cache,
-    drop the stale modules from sys.modules, and retry.
+    In a PyInstaller build the default gen_py path lives inside the frozen
+    package (read-only) or is missing entirely, which makes
+    gencache.EnsureDispatch raise ModuleNotFoundError: 'win32com.gen_py'.
+    Redirect the cache to a writable per-user temp folder and (re)create it.
     """
     try:
-        return gencache.EnsureDispatch("PowerPoint.Application")
-    except AttributeError:
+        import tempfile
+        gen_dir = os.path.join(tempfile.gettempdir(), "wml_gen_py")
+        os.makedirs(gen_dir, exist_ok=True)
+        # Point win32com at the writable folder and allow writing.
+        import win32com
+        if gen_dir not in win32com.__gen_path__:
+            win32com.__gen_path__ = gen_dir
+        gencache.is_readonly = False
+        # Rebuild the gen_py package object against the new path.
+        try:
+            gencache.GetGeneratePath()
+        except Exception:
+            pass
+    except Exception:
         pass
-    _purge_gen_py()
+
+
+def _ensure_powerpoint():
+    """EnsureDispatch with self-healing for missing/stale gen_py caches.
+
+    Two failure modes are handled:
+      * Frozen (PyInstaller) builds lack a writable win32com.gen_py cache and
+        raise ModuleNotFoundError: 'win32com.gen_py'.
+      * Office updates leave stale early-binding modules that raise
+        AttributeError on 'MinorVersion' (or similar).
+    In both cases we redirect gen_py to a writable folder, purge stale state,
+    and retry; the final fallback is late binding via Dispatch.
+    """
+    _prepare_gen_py_writable()
     try:
         return gencache.EnsureDispatch("PowerPoint.Application")
-    except AttributeError:
-        # Final fallback: skip early binding entirely. Loses a few
-        # advanced attributes but is enough for the watermark flow.
+    except Exception:
+        pass
+    _purge_gen_py()
+    _prepare_gen_py_writable()
+    try:
+        return gencache.EnsureDispatch("PowerPoint.Application")
+    except Exception:
+        # Final fallback: late binding. Loses some early-bound attributes but
+        # keeps the watermark flow working rather than crashing.
         return win32com.client.Dispatch("PowerPoint.Application")
 
 if __name__ == "__main__":

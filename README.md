@@ -1,17 +1,20 @@
 # Watermark Lab
 
-> **Version 1.2.0** — First official release  
-> A lightweight Windows desktop tool for applying professional, tiled, diagonal watermarks to PowerPoint presentations and video files.
+> **Version 2.0.0** — PySide6/Qt rewrite with true-render live preview  
+> A lightweight Windows desktop tool for applying professional, tiled, diagonal watermarks to PowerPoint, Word and video files.
 
 ---
 
 ## Overview
 
-Watermark Lab lets you stamp any `.pptx` or video file with a customisable diagonal text watermark in seconds. It runs entirely on your Windows machine — no cloud, no subscription, no data leaves your device.
+Watermark Lab lets you stamp any PowerPoint, Word or video file with a customisable diagonal text watermark in seconds. It runs entirely on your Windows machine — no cloud, no subscription, no data leaves your device.
 
-- PowerPoint files are watermarked natively via COM — the result is a real editable `.pptx`, not a flattened image.
+- PowerPoint and Word files are watermarked natively — the result is a real, editable document, not a flattened image.
+- A **true-render live preview** shows the genuine watermarked output as you type and adjust settings.
 - Video files are processed with ffmpeg, which the app downloads automatically on first use.
 - The app ships as a self-contained portable folder — unzip and run, no installer needed.
+
+> **New in 2.0.0:** the interface is a full **PySide6/Qt** rewrite — a three-pane layout with drag-and-drop, an editable transparency value, a colour palette + eyedropper, and a faithful live preview. The previous Tkinter UI is preserved under [`previous_version/`](previous_version/README.md).
 
 ---
 
@@ -19,17 +22,20 @@ Watermark Lab lets you stamp any `.pptx` or video file with a customisable diago
 
 | Feature | Detail |
 |---|---|
-| **PowerPoint watermarking** | `.pptx` / `.ppt` — tiled diagonal text shape added to every slide. Fully editable output. |
-| **Word watermarking** | `.docx` / `.doc` — native diagonal watermark via Word's own VML format. Identical to Design → Watermark in the ribbon. |
+| **True-render live preview** | A faithful, pixel-accurate preview of the actual watermarked output — rendered via Qt's PDF engine — updates as you edit text, colour and transparency. |
+| **PowerPoint watermarking** | `.pptx` / `.ppt` — tiled diagonal text shape added to every slide. Fully editable output. OneDrive-safe saving. |
+| **Word watermarking** | `.docx` / `.doc` — native diagonal watermark via Word's own VML format. Snug, auto-wrapped text. |
 | **Video watermarking** | `.mp4` `.mov` `.m4v` `.mkv` `.avi` `.webm` — PNG overlay composited via ffmpeg. Audio stream-copied, no quality loss. |
-| **Custom watermark text** | Any text — default is `CONFIDENTIAL`. |
-| **Color picker** | Full RGB color chooser with live swatch preview. |
-| **Transparency slider** | 0% (fully opaque) → 100% (invisible). |
-| **PDF export** | Optionally export a PDF alongside the watermarked PowerPoint. |
-| **Open file after save** | Checkbox to auto-open the output file when done (on by default). |
-| **Folder shortcut** | 📂 icon in the status bar — click to open the output folder in Explorer. |
-| **Splash screen** | Branded splash shown at launch. |
-| **Dark theme** | Full dark UI throughout — title bar, controls, status bar. |
+| **Drag & drop** | Drop a file straight onto the app, or browse for a file or a whole folder. |
+| **Custom watermark text** | Any text — default is `CONFIDENTIAL`. Wraps automatically; up to 100 characters. |
+| **Colour picker** | Palette swatches, an editable hex value, and an eyedropper for any custom colour. |
+| **Transparency** | Slider plus an **editable value** — type an exact 0–100 percentage. |
+| **Batch processing** | Pick a folder and watermark every supported file in one click. |
+| **Presets** | Save and recall named configurations (text + colour + transparency). |
+| **Recent files** | Quick access to recently used files and presets. |
+| **PDF export** | Optionally export a PDF alongside the watermarked PowerPoint / Word file. |
+| **Open file after save** | Toggle to auto-open the output file(s) when done. |
+| **Dark theme** | Full dark Qt UI throughout — custom title bar, controls, status panel. |
 | **Auto-updater** | Checks GitHub Releases on launch; one-click install of new versions. |
 | **ffmpeg auto-download** | Downloads ffmpeg automatically on first video use (~30 MB). No manual setup. |
 | **Portable** | Runs from any user-writable folder — Desktop, USB stick, network share. |
@@ -39,17 +45,18 @@ Watermark Lab lets you stamp any `.pptx` or video file with a customisable diago
 ## Requirements
 
 - **Windows 10 or 11** (64-bit)
-- **Microsoft PowerPoint** — required for `.pptx` / `.ppt` watermarking (uses COM automation). Not needed for video.
+- **Microsoft PowerPoint** — required for `.pptx` / `.ppt` watermarking (uses COM automation). Not needed for Word or video.
+- **Microsoft Word** — required for `.docx` / `.doc` PDF export. Not needed for the watermark itself.
 - No Python install required when running the pre-built `.exe` from a release.
 
 ### Running from source
 
 ```powershell
-pip install pywin32 Pillow packaging
+pip install PySide6 pywin32 Pillow packaging python-docx
 python Watermark_Lab.pyw
 ```
 
-Python 3.10 or later required.
+Python 3.10 or later required. The live preview uses **PySide6** (Qt for Python), including its bundled `QtPdf` module.
 
 ---
 
@@ -68,7 +75,7 @@ No installer, no admin rights needed.
 ```powershell
 git clone https://github.com/brucemurphy/Watermark-Lab.git
 cd Watermark-Lab
-pip install pywin32 Pillow packaging
+pip install PySide6 pywin32 Pillow packaging python-docx
 python Watermark_Lab.pyw
 ```
 
@@ -76,11 +83,11 @@ python Watermark_Lab.pyw
 
 ## Usage
 
-1. Click **Browse…** and select a `.pptx`, `.ppt`, or video file.
+1. **Drag a file onto the app**, or click **Browse File…** / **Browse Folder…** to select a `.pptx`, `.ppt`, `.docx`, `.doc`, or video file.
 2. Enter your **watermark text** (default: `CONFIDENTIAL`).
-3. Choose a **color** and set **transparency** with the slider.
-4. Optionally check **Also export PDF** (PowerPoint only).
-5. Optionally uncheck **Open file after watermarking** if you don't want it to auto-open.
+3. Pick a **colour** (palette, hex, or eyedropper) and set **transparency** — drag the slider or type an exact value in the editable pill.
+4. Watch the **live preview** update to show the real watermarked result.
+5. Toggle **Export PDF** (PowerPoint / Word) and **Open file(s) after processing** as needed.
 6. Click **Apply Watermark**.
 
 The output file is saved next to the source with a `_watermarked` suffix:
@@ -131,13 +138,34 @@ Update checks are a no-op when running from Python source (`python Watermark_Lab
 
 ---
 
+## Upgrading from 1.4.x
+
+The upgrade path is automatic — **no reinstall required**.
+
+- **Pre-built app users:** launch your existing 1.4.x app. A few seconds after start it checks GitHub Releases, sees that **2.0.0 > 1.4.x**, and prompts you to install. Click **Yes** and the new Qt app downloads, replaces the old folder, and relaunches. Your presets and recent files are preserved.
+- **Running from source:** pull the latest and install the one new dependency:
+
+  ```powershell
+  git pull
+  pip install PySide6
+  python Watermark_Lab.pyw
+  ```
+
+- **Prefer the old UI?** The legacy Tkinter front-end is archived under [`previous_version/`](previous_version/README.md) and still works against the shared backend modules in the repository root.
+
+---
+
 ## Project Layout
 
 | File | Purpose |
 |---|---|
-| `Watermark_Lab.pyw` | Main GUI entry point (Tkinter) |
-| `_powerpoint.py` | PowerPoint COM watermarking engine |
-| `_video.py` | Video watermarking via ffmpeg + Pillow |
+| `Watermark_Lab.pyw` | Main GUI entry point (PySide6/Qt) |
+| `_xpreview.py` | True-render live preview engine (Qt `QtPdf` + ffmpeg) |
+| `_xpowerpoint.py` | OneDrive-safe PowerPoint save wrapper |
+| `_xword.py` | Snug, auto-wrapped Word watermark |
+| `_powerpoint.py` | PowerPoint COM watermarking engine (shared) |
+| `_word.py` | Word VML watermarking engine (shared) |
+| `_video.py` | Video watermarking via ffmpeg + Pillow (shared) |
 | `_ffmpeg.py` | ffmpeg auto-download and path resolution |
 | `_updater.py` | GitHub Releases auto-update logic |
 | `_version.py` | Version constant — stamped by CI at build time |
@@ -145,6 +173,7 @@ Update checks are a no-op when running from Python source (`python Watermark_Lab
 | `WatermarkLab.spec` | PyInstaller build spec |
 | `SplashLab.png` | Splash screen image |
 | `Watermark.ico` / `Watermark.png` | App icon |
+| `previous_version/` | Archived legacy 1.4.x Tkinter app |
 | `.github/workflows/release.yml` | CI: build, zip, publish GitHub Release on tag push |
 
 ---
@@ -154,7 +183,7 @@ Update checks are a no-op when running from Python source (`python Watermark_Lab
 The release workflow builds automatically via GitHub Actions on every version tag push. To build locally:
 
 ```powershell
-pip install pyinstaller pywin32 Pillow packaging
+pip install pyinstaller PySide6 pywin32 Pillow packaging python-docx
 pyinstaller WatermarkLab.spec
 ```
 
@@ -176,8 +205,10 @@ This repository does **not** redistribute any third-party binaries.
 | Component | License | Notes |
 |---|---|---|
 | **FFmpeg** | LGPL v2.1+ / GPL v2+ | Downloaded at runtime by the user. © FFmpeg developers. https://ffmpeg.org |
+| **PySide6 (Qt for Python)** | LGPL v3 / GPL | Qt UI and `QtPdf` preview rendering. © The Qt Company. https://www.qt.io |
 | **Pillow** | HPND / MIT-CMU | Used for watermark image generation. https://python-pillow.org |
-| **pywin32** | PSF License | Used for PowerPoint COM automation. https://github.com/mhammond/pywin32 |
+| **pywin32** | PSF License | Used for PowerPoint / Word COM automation. https://github.com/mhammond/pywin32 |
+| **python-docx** | MIT | Used for Word VML watermark injection. https://github.com/python-openxml/python-docx |
 | **packaging** | Apache 2.0 / BSD | Used for version comparison. https://github.com/pypa/packaging |
 
 ---

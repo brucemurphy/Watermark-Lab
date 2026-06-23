@@ -1,6 +1,6 @@
 {
-  "version": "1.4.2",
-  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v1.4.2/WatermarkLab.zip",
+  "version": "2.0.0",
+  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v2.0.0/WatermarkLab.zip",
   "sha256": "",
-  "notes": "Fixes in v1.4.2:\n- Restored the working PowerPoint COM handling from v1.3.0 (fixes CoInitialize and Presentations errors on the packaged build)\n\nIncludes all v1.4.0 features:\n- Batch processing - watermark an entire folder in one click\n- Watermark presets - save and recall named configs\n- Recent files dropdown\n- Word document watermarking (.docx/.doc) with PDF export\n- Gold accent theme"
+  "notes": "Watermark Lab 2.0.0 - a complete redesign.\n\nWhat's new:\n- Brand-new PySide6/Qt interface with a three-pane layout\n- True-render live preview - see the genuine watermarked output as you type and adjust settings\n- Drag & drop a file straight onto the app\n- Editable transparency value - type an exact 0-100 percentage\n- Colour palette swatches, editable hex value, and an eyedropper\n- OneDrive-safe PowerPoint saving (fixes silent save failures in synced folders)\n- Snug, auto-wrapped Word watermark text\n\nIncludes everything from 1.4.x:\n- PowerPoint, Word and video watermarking\n- Batch folder processing, saved presets, recent files\n- PDF export, open-after-save, ffmpeg auto-download\n\nUpgrading: existing 1.4.x users are offered this update automatically - click Yes to install and your presets and recent files are kept."
 }

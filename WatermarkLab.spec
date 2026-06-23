@@ -6,7 +6,7 @@
 #
 # Why onedir instead of onefile:
 #   Onefile extracts a _MEI<pid> folder at every launch. When the exe lives
-#   on OneDrive the sync engine locks those files causing a TclError crash.
+#   on OneDrive the sync engine locks those files causing a crash.
 #   Extracting to %TEMP% instead triggers WDAC which blocks DLL loads.
 #   Onedir has no runtime extraction — all files are pre-extracted at build
 #   time, so neither problem applies.
@@ -27,6 +27,9 @@ a = Analysis(
     hiddenimports=[
         'packaging', 'packaging.version',
         '_ffmpeg', '_updater', '_version', '_word', '_prefs',
+        '_powerpoint', '_video',
+        '_xpreview', '_xpowerpoint', '_xword',
+        'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets', 'PySide6.QtPdf',
         'docx', 'docx.oxml.ns', 'lxml', 'lxml.etree',
         'PIL._imaging',
         'PIL._imagingft',
@@ -72,7 +75,7 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 _BIN_STRIP = {
     # Pillow extensions we never call
     '_avif', '_webp', '_imagingcms', '_imagingmath', '_imagingtk',
-    # win32ui / MFC — we use Tkinter, not the Pythonwin GUI toolkit
+    # win32ui / MFC — we use Qt, not the Pythonwin GUI toolkit
     'win32ui', 'mfc140u',
     # win32 internals not needed at runtime
     'win32trace', '_win32sysloader',
@@ -86,10 +89,10 @@ a.binaries = [
 ]
 
 # ---------------------------------------------------------------------------
-# Strip the bulk of the Tcl/Tk data tree.  The app uses dark-themed ttk
-# widgets and a PNG splash — it needs core Tk, ttk themes, and the default
-# encoding.  Everything else (locales, demos, extra encodings, old http
-# packages, opt packages) is dead weight.
+# Strip the bulk of the Tcl/Tk data tree.  The Qt app does not use Tkinter, so
+# normally no Tcl/Tk data is bundled and this is a defensive no-op.  If some
+# transitive import ever pulls Tcl/Tk in, drop the dead weight (locales,
+# timezone db, old http/opt .tm packages) so it never bloats the build.
 # ---------------------------------------------------------------------------
 _TCL_TM_STRIP = {'http', 'tcltest', 'msgcat', 'platform'}
 

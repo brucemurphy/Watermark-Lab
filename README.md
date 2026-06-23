@@ -1,6 +1,6 @@
 # Watermark Lab
 
-> **Version 2.0.0** — PySide6/Qt rewrite with true-render live preview  
+> **Version 2.0.1** — PySide6/Qt rewrite with true-render live preview  
 > A lightweight Windows desktop tool for applying professional, tiled, diagonal watermarks to PowerPoint, Word and video files.
 
 ---
@@ -15,6 +15,8 @@ Watermark Lab lets you stamp any PowerPoint, Word or video file with a customisa
 - The app ships as a self-contained portable folder — unzip and run, no installer needed.
 
 > **New in 2.0.0:** the interface is a full **PySide6/Qt** rewrite — a three-pane layout with drag-and-drop, an editable transparency value, a colour palette + eyedropper, and a faithful live preview. The previous Tkinter UI is preserved under [`previous_version/`](previous_version/README.md).
+>
+> **New in 2.0.1:** switch between the new and classic interface from inside the app (your choice is remembered), browse dialogs reopen at your last folder, the window comes to the front on launch/switch, and a new **Export PDF Only** button leaves just the PDF behind.
 
 ---
 
@@ -30,6 +32,9 @@ Watermark Lab lets you stamp any PowerPoint, Word or video file with a customisa
 | **Custom watermark text** | Any text — default is `CONFIDENTIAL`. Wraps automatically; up to 100 characters. |
 | **Colour picker** | Palette swatches, an editable hex value, and an eyedropper for any custom colour. |
 | **Transparency** | Slider plus an **editable value** — type an exact 0–100 percentage. |
+| **Switchable interface** | Flip between the modern and classic interface from inside the app — your choice is remembered for next launch. |
+| **Remembered browse folder** | File / folder dialogs reopen at your last-used folder (Documents by default). |
+| **Export PDF Only** | One-click export of just the PDF — the intermediate watermarked Office file is cleaned up for you. |
 | **Batch processing** | Pick a folder and watermark every supported file in one click. |
 | **Presets** | Save and recall named configurations (text + colour + transparency). |
 | **Recent files** | Quick access to recently used files and presets. |
@@ -160,6 +165,7 @@ The upgrade path is automatic — **no reinstall required**.
 | File | Purpose |
 |---|---|
 | `Watermark_Lab.pyw` | Main GUI entry point (PySide6/Qt) |
+| `_uiswitch.py` | Classic/Modern UI switch + shared asset paths |
 | `_xpreview.py` | True-render live preview engine (Qt `QtPdf` + ffmpeg) |
 | `_xpowerpoint.py` | OneDrive-safe PowerPoint save wrapper |
 | `_xword.py` | Snug, auto-wrapped Word watermark |

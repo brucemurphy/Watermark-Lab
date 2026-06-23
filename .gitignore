@@ -1,4 +1,4 @@
-# Python
+python Watermark_Lab.pywpython Watermark_Lab.pyw# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -36,6 +36,7 @@ CHANGELOG.md
 # User preferences (portable, stored alongside the app)
 presets.json
 recent.json
+settings.json
 
 # Local test media (never pushed to GitHub)
 *.mp4

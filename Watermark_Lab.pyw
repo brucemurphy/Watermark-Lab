@@ -14,6 +14,27 @@ import os
 import subprocess
 import sys
 
+# ── UI-mode early dispatch ───────────────────────────────────────────────────
+# Honour the remembered UI choice before importing Qt. If the user last picked
+# the classic (Tkinter) UI and this process wasn't explicitly forced here,
+# launch the legacy front-end and exit — so a cold start reopens in the chosen
+# UI without ever loading PySide6. The FORCED_FLAG (set by a relaunch) skips
+# this so switching always lands in the requested UI without looping.
+def _dispatch_ui_mode() -> None:
+	try:
+		import _uiswitch
+		import _prefs
+	except Exception:
+		return  # switching unavailable — fall through to the modern UI
+	if _uiswitch.is_forced():
+		return
+	if _prefs.load_ui_mode() == _uiswitch.MODE_CLASSIC:
+		if _uiswitch.relaunch(_uiswitch.MODE_CLASSIC):
+			sys.exit(0)
+
+
+_dispatch_ui_mode()
+
 from PySide6.QtCore import Qt, QPoint, QSize, Signal, QEvent, QPropertyAnimation, Property, QRectF, QThread, QObject, QTimer, QPointF
 from PySide6.QtGui import QIcon, QPixmap, QFont, QPainter, QColor, QBrush, QPen, QPainterPath, QImage
 from PySide6.QtWidgets import (
@@ -26,6 +47,7 @@ from PySide6.QtWidgets import (
 from _version import APP_VERSION
 from _prefs import (
 	load_presets, save_preset, delete_preset, load_recent, add_recent,
+	load_last_dir, save_last_dir,
 )
 from _xpowerpoint import add_watermark  # experimental: OneDrive-safe save
 from _word import WORD_EXTS
@@ -75,6 +97,7 @@ ICON_MORE     = "more"
 ICON_CHEVRON  = "chevron"
 ICON_EYE      = "eye"
 ICON_EYE_OFF  = "eye_off"
+ICON_APP      = "app_window"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Palette — tuned to the mockup (darker, bluer than the legacy Tkinter theme)
@@ -204,6 +227,26 @@ def _draw_icon(p: QPainter, name: str, s: float, c: QColor) -> None:
         p.drawEllipse(QPointF(cx, cy - s * 0.17), s * 0.045, s * 0.045)
         p.setBrush(Qt.NoBrush)
         p.drawLine(QPointF(cx, cy - s * 0.04), QPointF(cx, cy + s * 0.17))
+
+    elif name == "app_window":
+        # Rounded application window: title bar with three dots + a centered
+        # check inside a circle (echoes the app-tile artwork).
+        x, y, w, h = s * 0.14, s * 0.18, s * 0.72, s * 0.64
+        p.drawRoundedRect(QRectF(x, y, w, h), s * 0.10, s * 0.10)
+        bar_y = y + s * 0.15
+        p.drawLine(QPointF(x, bar_y), QPointF(x + w, bar_y))
+        dot_r = s * 0.025
+        p.setBrush(QBrush(c))
+        for k in range(3):
+            p.drawEllipse(QPointF(x + s * 0.09 + k * s * 0.07, y + s * 0.075),
+                          dot_r, dot_r)
+        p.setBrush(Qt.NoBrush)
+        # Check inside a circle in the content area.
+        ccy = bar_y + (y + h - bar_y) / 2.0
+        cr = s * 0.16
+        p.drawEllipse(QPointF(cx, ccy), cr, cr)
+        p.drawLine(QPointF(cx - s * 0.07, ccy), QPointF(cx - s * 0.015, ccy + s * 0.06))
+        p.drawLine(QPointF(cx - s * 0.015, ccy + s * 0.06), QPointF(cx + s * 0.08, ccy - s * 0.06))
 
     elif name == "text":
         # Capital "A" mark for preset rows.
@@ -441,6 +484,16 @@ def build_qss() -> str:
 		selection-background-color: {ACCENT};
 		selection-color: {ACCENT_FG};
 		outline: none;
+	}}
+	/* Explicit item states — some Windows styles ignore selection-background-color
+	   on the view and fall back to the native blue highlight otherwise. */
+	QComboBox QAbstractItemView::item {{
+		padding: 4px 8px; color: {FG};
+		border: none; border-radius: 4px;
+	}}
+	QComboBox QAbstractItemView::item:selected,
+	QComboBox QAbstractItemView::item:hover {{
+		background: {ACCENT}; color: {ACCENT_FG};
 	}}
 
 	/* ── Slider ────────────────────────────────────────────────────── */
@@ -719,6 +772,14 @@ class PresetRow(QFrame):
 		name_lbl.setObjectName("PresetName")
 		sub_lbl = QLabel(subtitle)
 		sub_lbl.setObjectName("PresetDate")
+		# Let long names shrink to the column width instead of forcing the row
+		# wider than the panel (which would clip the right edge / hover border,
+		# since horizontal scrolling is disabled). Overflow is elided with "…".
+		for _lbl in (name_lbl, sub_lbl):
+			_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+			_lbl.setMinimumWidth(0)
+		self._name_lbl, self._name_full = name_lbl, name
+		self._sub_lbl, self._sub_full = sub_lbl, subtitle
 		col.addWidget(name_lbl)
 		col.addWidget(sub_lbl)
 		h.addLayout(col, 1)
@@ -732,6 +793,22 @@ class PresetRow(QFrame):
 		more.clicked.connect(self._show_menu)
 		h.addWidget(more)
 		self._more = more
+
+	def _elide_labels(self):
+		"""Elide the name/subtitle to the available width so a long preset
+		name never pushes the row past the panel edge."""
+		from PySide6.QtGui import QFontMetrics
+		for lbl, full in ((self._name_lbl, self._name_full),
+						  (self._sub_lbl, self._sub_full)):
+			avail = lbl.width()
+			if avail <= 0:
+				continue
+			fm = QFontMetrics(lbl.font())
+			lbl.setText(fm.elidedText(full, Qt.ElideRight, avail))
+
+	def resizeEvent(self, e):
+		super().resizeEvent(e)
+		self._elide_labels()
 
 	def _build_tooltip(self, name: str, data: dict, color: str | None) -> str:
 		"""Rich HTML tooltip exposing the full preset detail."""
@@ -874,13 +951,18 @@ class ProcessWorker(QObject):
 	finished   = Signal(int, list, str)  # done_count, errors, last_output_path
 	needFfmpeg = Signal()                # ffmpeg missing for a video job
 
-	def __init__(self, files, text, color_rgb, transparency, export_pdf):
+	def __init__(self, files, text, color_rgb, transparency, export_pdf,
+				 cleanup_office=False):
 		super().__init__()
 		self._files = list(files)
 		self._text = text
 		self._color_rgb = color_rgb
 		self._transparency = transparency
 		self._export_pdf = export_pdf
+		# When set, the produced watermarked Office file is removed after the
+		# PDF is confirmed — used by the dedicated "Export PDF" button so only
+		# the .pdf is left behind (not the intermediate .pptx/.docx).
+		self._cleanup_office = cleanup_office
 		self._cancel = False
 
 	def cancel(self):
@@ -909,6 +991,15 @@ class ProcessWorker(QObject):
 											  progress_cb=lambda s, _t: self.encode.emit(s))
 				else:
 					raise ValueError(f"Unsupported file type: {path}")
+				# PDF-only export: drop the intermediate Office file, keep the PDF.
+				if self._cleanup_office and kind in ("ppt", "word"):
+					pdf = os.path.splitext(out)[0] + ".pdf"
+					if os.path.isfile(pdf):
+						try:
+							os.remove(out)
+							out = pdf
+						except OSError:
+							pass  # leave the Office file if it can't be removed
 				last_out = out
 				done += 1
 				self.fileDone.emit(out)
@@ -1585,12 +1676,13 @@ class WatermarkLabX(QMainWindow):
 		self.btn_apply.clicked.connect(self._on_apply_clicked)
 		av.addWidget(self.btn_apply)
 
-		self.btn_export = QPushButton("  Export PDF")
+		self.btn_export = QPushButton("  Export PDF Only")
 		self.btn_export.setIcon(glyph_icon(ICON_EXPORT, 16, FG_SOFT))
 		self.btn_export.setIconSize(QSize(18, 18))
 		self.btn_export.setMinimumHeight(44)
 		self.btn_export.setCursor(Qt.PointingHandCursor)
-		self.btn_export.setToolTip("Watermark and also export a PDF (PowerPoint / Word)")
+		self.btn_export.setToolTip("Watermark and export only a PDF — the watermarked "
+								   "PowerPoint / Word file is not kept")
 		self.btn_export.clicked.connect(self._on_export_clicked)
 		av.addWidget(self.btn_export)
 
@@ -1647,6 +1739,16 @@ class WatermarkLabX(QMainWindow):
 
 		v.addWidget(status)
 		v.addStretch(1)
+
+		# ── Switch to classic UI ───────────────────────────────────────
+		classic_btn = QPushButton("  Classic UI")
+		classic_btn.setObjectName("HelpLink")
+		classic_btn.setProperty("ghost", True)
+		classic_btn.setIcon(glyph_icon(ICON_APP, 15, MUTED))
+		classic_btn.setCursor(Qt.PointingHandCursor)
+		classic_btn.setToolTip("Switch to the classic (v1.4) interface and remember the choice")
+		classic_btn.clicked.connect(self._switch_to_classic)
+		v.addWidget(classic_btn, 0, Qt.AlignRight)
 
 		# ── Help & Support ─────────────────────────────────────────────
 		help_btn = QPushButton("  Help & Support")
@@ -1722,19 +1824,23 @@ class WatermarkLabX(QMainWindow):
 
 	def _pick_file(self):
 		path, _ = QFileDialog.getOpenFileName(
-			self, "Select a file to watermark", "",
+			self, "Select a file to watermark", load_last_dir(),
 			"Supported files (*.pptx *.ppt *.docx *.doc *.mp4 *.mov *.m4v *.mkv *.avi *.webm);;"
 			"PowerPoint (*.pptx *.ppt);;Word (*.docx *.doc);;"
 			"Video (*.mp4 *.mov *.m4v *.mkv *.avi *.webm);;All files (*.*)",
 		)
 		if path:
-			self._set_files([os.path.normpath(path)])
+			path = os.path.normpath(path)
+			save_last_dir(path)
+			self._set_files([path])
 
 	def _pick_folder(self):
-		folder = QFileDialog.getExistingDirectory(self, "Select folder to batch watermark")
+		folder = QFileDialog.getExistingDirectory(
+			self, "Select folder to batch watermark", load_last_dir())
 		if not folder:
 			return
 		folder = os.path.normpath(folder)
+		save_last_dir(folder)
 		files = [
 			os.path.join(folder, f) for f in os.listdir(folder)
 			if os.path.splitext(f)[1].lower() in ALL_SUPPORTED
@@ -2074,6 +2180,10 @@ class WatermarkLabX(QMainWindow):
 			color_rgb = 0xA6A6A6
 		transparency = max(0.0, min(1.0, self.trans_slider.value() / 100.0))
 		export_pdf = bool(self._export_pdf_only or export_only)
+		# The dedicated Export PDF button wants a PDF only — clean up the
+		# leftover Office file afterwards. But if the user ALSO turned the
+		# Export-PDF toggle on, they explicitly want both, so keep them.
+		cleanup_office = bool(export_only and not self._export_pdf_only)
 		text = self.wm_text.text().strip()
 		files = list(self._files)
 
@@ -2082,7 +2192,8 @@ class WatermarkLabX(QMainWindow):
 		self.status_lbl.setText("Processing…")
 
 		self._proc_thread = QThread(self)
-		self._proc_worker = ProcessWorker(files, text, color_rgb, transparency, export_pdf)
+		self._proc_worker = ProcessWorker(files, text, color_rgb, transparency,
+										  export_pdf, cleanup_office=cleanup_office)
 		self._proc_worker.moveToThread(self._proc_thread)
 		self._proc_thread.started.connect(self._proc_worker.run)
 		self._proc_worker.progress.connect(self._on_proc_progress)
@@ -2234,6 +2345,18 @@ class WatermarkLabX(QMainWindow):
 		else:
 			self.status_lbl.setText(f"Could not open {HELP_URL}")
 
+	def _switch_to_classic(self):
+		"""Remember the choice, launch the classic Tkinter UI, and close this one."""
+		try:
+			import _uiswitch
+		except Exception:
+			self.status_lbl.setText("Classic UI is unavailable.")
+			return
+		if _uiswitch.relaunch(_uiswitch.MODE_CLASSIC):
+			self.close()
+		else:
+			self.status_lbl.setText("Could not start the classic UI.")
+
 	def _set_status_state(self, title: str, subtitle: str):
 		"""Update the right-column status card headline + subtitle."""
 		if hasattr(self, "status_title"):
@@ -2308,6 +2431,28 @@ class WatermarkLabX(QMainWindow):
 		super().closeEvent(e)
 
 
+def _bring_to_front(win) -> None:
+	"""Raise, focus and briefly pin the window on top so it lands in the
+	foreground on launch and after a UI-switch relaunch (a child process'
+	window can otherwise open behind the one that spawned it)."""
+	try:
+		win.setWindowState(
+			(win.windowState() & ~Qt.WindowMinimized) | Qt.WindowActive)
+		flags = win.windowFlags()
+		win.setWindowFlag(Qt.WindowStaysOnTopHint, True)
+		win.show()
+		win.raise_()
+		win.activateWindow()
+		QApplication.processEvents()
+		# Drop the always-on-top hint so the window behaves normally afterwards.
+		win.setWindowFlags(flags)
+		win.show()
+		win.raise_()
+		win.activateWindow()
+	except Exception:
+		pass
+
+
 def main() -> None:
 	# Qt 6 enables high-DPI scaling by default; use rounded-up rounding policy
 	# so 125% / 150% Windows scaling stays crisp.
@@ -2318,6 +2463,14 @@ def main() -> None:
 	if os.path.isfile(ICON_ICO):
 		app.setWindowIcon(QIcon(ICON_ICO))
 	app.setStyleSheet(build_qss())
+
+	# Force the selection-highlight palette roles to the gold accent so popups
+	# (e.g. the combo dropdown) never fall back to the native blue highlight.
+	from PySide6.QtGui import QPalette
+	_pal = app.palette()
+	_pal.setColor(QPalette.Highlight, QColor(ACCENT))
+	_pal.setColor(QPalette.HighlightedText, QColor(ACCENT_FG))
+	app.setPalette(_pal)
 
 	# Ensure the taskbar groups under our own icon (not python.exe) on Windows.
 	if sys.platform == "win32":
@@ -2346,6 +2499,7 @@ def main() -> None:
 		win.show()
 		if splash is not None:
 			splash.finish(win)
+		_bring_to_front(win)
 
 	if splash is not None:
 		QTimer.singleShot(750, _reveal)

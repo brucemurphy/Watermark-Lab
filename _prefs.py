@@ -19,7 +19,10 @@ import sys
 import tempfile
 
 _MAX_RECENT = 8
-_FILES = ("presets.json", "recent.json")
+_FILES = ("presets.json", "recent.json", "settings.json")
+
+_VALID_UI_MODES = ("modern", "classic")
+_DEFAULT_UI_MODE = "modern"
 
 
 def _is_frozen():
@@ -160,3 +163,66 @@ def add_recent(path):
         recent.remove(path)
     recent.insert(0, path)
     _save("recent.json", recent[:_MAX_RECENT])
+
+
+def load_ui_mode():
+    """Return the remembered UI mode: "modern" (Qt) or "classic" (Tkinter).
+
+    Falls back to the default if settings.json is missing or invalid.
+    """
+    data = _load("settings.json")
+    if isinstance(data, dict):
+        mode = data.get("ui_mode")
+        if mode in _VALID_UI_MODES:
+            return mode
+    return _DEFAULT_UI_MODE
+
+
+def save_ui_mode(mode):
+    """Persist the chosen UI mode; ignores anything outside the valid set."""
+    if mode not in _VALID_UI_MODES:
+        return
+    data = _load("settings.json")
+    if not isinstance(data, dict):
+        data = {}
+    data["ui_mode"] = mode
+    _save("settings.json", data)
+
+
+def _default_browse_dir():
+    """Best default directory for a first-time browse: the user's Documents
+    folder, falling back to the home folder, then the current directory."""
+    home = os.environ.get("USERPROFILE") or os.path.expanduser("~")
+    docs = os.path.join(home, "Documents")
+    if os.path.isdir(docs):
+        return docs
+    if os.path.isdir(home):
+        return home
+    return os.getcwd()
+
+
+def load_last_dir():
+    """Return the last directory the user browsed from.
+
+    Falls back to the Documents folder when unset or no longer present.
+    """
+    data = _load("settings.json")
+    if isinstance(data, dict):
+        last = data.get("last_dir")
+        if isinstance(last, str) and os.path.isdir(last):
+            return last
+    return _default_browse_dir()
+
+
+def save_last_dir(path):
+    """Remember the directory of the user's most recent file/folder pick."""
+    if not isinstance(path, str) or not path:
+        return
+    directory = path if os.path.isdir(path) else os.path.dirname(path)
+    if not os.path.isdir(directory):
+        return
+    data = _load("settings.json")
+    if not isinstance(data, dict):
+        data = {}
+    data["last_dir"] = directory
+    _save("settings.json", data)

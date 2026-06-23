@@ -7,10 +7,18 @@ import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, colorchooser, simpledialog
 
-from _powerpoint import add_watermark
+# This legacy UI was archived under previous_version/ during the 2.0.0 switch,
+# but it still uses the shared backend modules that live in the repository root.
+# Put the root on sys.path so those imports resolve no matter how this file is
+# launched (directly, or relaunched by the modern UI's switch).
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+from _xpowerpoint import add_watermark  # OneDrive-safe save (shared with the modern UI)
 from _word import add_word_watermark, WORD_EXTS
 from _video import add_video_watermark, is_video_file, VIDEO_EXTS
-from _prefs import load_presets, save_preset, delete_preset, load_recent, add_recent
+from _prefs import load_presets, save_preset, delete_preset, load_recent, add_recent, load_last_dir, save_last_dir
 from _version import APP_VERSION
 from _updater import check_for_update_async, apply_update, cleanup_old_exe
 from _ffmpeg import is_ffmpeg_cached, download_ffmpeg, FfmpegNotReadyError
@@ -18,9 +26,17 @@ from _ffmpeg import is_ffmpeg_cached, download_ffmpeg, FfmpegNotReadyError
 PPT_EXTS = {".pptx", ".ppt"}
 ALL_SUPPORTED = PPT_EXTS | WORD_EXTS | VIDEO_EXTS
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-SPLASH_IMAGE = os.path.join(SCRIPT_DIR, "SplashLab.png")
-ICON_ICO = os.path.join(SCRIPT_DIR, "Watermark.ico")
-ICON_PNG = os.path.join(SCRIPT_DIR, "Watermark.png")
+
+# Brand assets live in the repo root, not in previous_version/. Resolve them via
+# the shared _uiswitch constants so the window icon and splash always load; fall
+# back to the repo root (parent of this folder) if _uiswitch is unavailable.
+try:
+    from _uiswitch import ICON_ICO, ICON_PNG, SPLASH_PNG as SPLASH_IMAGE
+except Exception:
+    _ASSET_ROOT = os.path.dirname(SCRIPT_DIR)
+    SPLASH_IMAGE = os.path.join(_ASSET_ROOT, "SplashLab.png")
+    ICON_ICO = os.path.join(_ASSET_ROOT, "Watermark.ico")
+    ICON_PNG = os.path.join(_ASSET_ROOT, "Watermark.png")
 SPLASH_DURATION_MS = 750
 
 # Dark theme palette
@@ -299,6 +315,7 @@ class WatermarkApp(tk.Tk):
         self._refresh_presets()
         self._refresh_recent()
         self._center_on_screen()
+        self._bring_to_front()
 
     def _center_on_screen(self):
         """Position the window centred on screen, matching the splash location."""
@@ -310,6 +327,19 @@ class WatermarkApp(tk.Tk):
         x = (sw - w) // 2
         y = (sh - h) // 2
         self.geometry(f"+{x}+{y}")
+
+    def _bring_to_front(self):
+        """Land in the foreground on launch and after a UI-switch relaunch
+        (a child process' window can otherwise open behind its parent)."""
+        try:
+            self.lift()
+            self.attributes("-topmost", True)
+            self.focus_force()
+            # Drop the always-on-top flag shortly after so the window behaves
+            # normally once it has surfaced.
+            self.after(400, lambda: self.attributes("-topmost", False))
+        except tk.TclError:
+            pass
 
     def _build_ui(self):
         pad = {"padx": 8, "pady": 5}
@@ -429,6 +459,11 @@ class WatermarkApp(tk.Tk):
         ttk.Label(inner, textvariable=self.status_var,
                   style="Muted.TLabel").grid(row=0, column=1, pady=(0, 2), sticky="ws")
 
+        # Switch to the modern UI (bottom-right); remembers the choice.
+        self.modern_btn = ttk.Button(
+            status_frm, text="Modern UI ›", command=self._switch_to_modern)
+        self.modern_btn.grid(row=0, column=1, sticky="e", padx=(8, 0))
+
     def _open_output_folder(self):
         target = self._last_output_path
         if not target or not os.path.exists(target):
@@ -440,6 +475,18 @@ class WatermarkApp(tk.Tk):
         else:
             # Single file — open its folder with the file selected
             subprocess.Popen(["explorer", "/select,", target])
+
+    def _switch_to_modern(self):
+        """Remember the choice, launch the modern Qt UI, and close this one."""
+        try:
+            import _uiswitch
+        except Exception:
+            self.status_var.set("Modern UI is unavailable.")
+            return
+        if _uiswitch.relaunch(_uiswitch.MODE_MODERN):
+            self.destroy()
+        else:
+            self.status_var.set("Could not start the modern UI.")
 
     def _show_folder_btn(self):
         """Make the output-folder icon visible and clickable."""
@@ -529,10 +576,12 @@ class WatermarkApp(tk.Tk):
     # ── Batch processing ──────────────────────────────────────────────────
 
     def _pick_batch(self):
-        folder = filedialog.askdirectory(title="Select folder to batch watermark")
+        folder = filedialog.askdirectory(
+            title="Select folder to batch watermark", initialdir=load_last_dir())
         if not folder:
             return
         folder = os.path.normpath(folder)  # askdirectory returns forward slashes
+        save_last_dir(folder)
         files = [
             os.path.join(folder, f) for f in os.listdir(folder)
             if os.path.splitext(f)[1].lower() in ALL_SUPPORTED
@@ -602,6 +651,7 @@ class WatermarkApp(tk.Tk):
     def _pick_file(self):
         path = filedialog.askopenfilename(
             title="Select file to watermark",
+            initialdir=load_last_dir(),
             filetypes=[
                 ("Supported files",
                  "*.pptx *.ppt *.docx *.doc "
@@ -613,6 +663,7 @@ class WatermarkApp(tk.Tk):
             ],
         )
         if path:
+            save_last_dir(path)
             self.file_var.set(path)
             add_recent(path)
             self._refresh_recent()

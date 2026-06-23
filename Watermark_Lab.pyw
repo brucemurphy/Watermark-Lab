@@ -1027,6 +1027,25 @@ class _FfmpegDownloadWorker(QObject):
 			self.done.emit(False, str(exc))
 
 
+class _UpdateChecker(QObject):
+	"""Checks GitHub for a newer release on a worker thread and reports back
+	on the GUI thread via a Qt signal. Reuses the proven _updater logic so the
+	modern Qt UI gets the same auto-update the classic UI already had."""
+
+	updateAvailable = Signal(str, str)   # version, notes
+
+	def run(self):
+		try:
+			import _updater
+			release = _updater._fetch_latest_release()
+			tag = release.get("tag_name", "")
+			if _updater._is_newer(tag):
+				notes = release.get("body", "").strip()
+				self.updateAvailable.emit(tag.lstrip("v"), notes)
+		except Exception:
+			pass  # network/API failures are silent — never block launch
+
+
 class TitleBar(QFrame):
 	"""Custom draggable title bar with window controls."""
 
@@ -2345,6 +2364,50 @@ class WatermarkLabX(QMainWindow):
 		else:
 			self.status_lbl.setText(f"Could not open {HELP_URL}")
 
+	# ── Auto-update ────────────────────────────────────────────────────
+	def start_update_check(self):
+		"""Check GitHub for a newer release on a worker thread. No-op from
+		source (apply_update needs a frozen build); failures stay silent."""
+		if not getattr(sys, "frozen", False):
+			return
+		self._upd_thread = QThread(self)
+		self._upd_worker = _UpdateChecker()
+		self._upd_worker.moveToThread(self._upd_thread)
+		self._upd_thread.started.connect(self._upd_worker.run)
+		self._upd_worker.updateAvailable.connect(self._on_update_available)
+		# Tear the thread down once the worker signals (or finishes silently).
+		self._upd_worker.updateAvailable.connect(self._upd_thread.quit)
+		self._upd_thread.start()
+
+	def _on_update_available(self, version: str, notes: str):
+		"""Prompt the user to install a newer release and apply it on Yes."""
+		from PySide6.QtWidgets import QMessageBox
+		msg = f"Watermark Lab {version} is available."
+		if notes:
+			msg += f"\n\nWhat's new:\n{notes}"
+		msg += "\n\nInstall now and restart?"
+		resp = QMessageBox.question(
+			self, "Update available", msg,
+			QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+		if resp != QMessageBox.Yes:
+			self.status_lbl.setText(f"Update {version} available — install later from Help.")
+			return
+		self.status_lbl.setText("Downloading update…")
+		self.setCursor(Qt.WaitCursor)
+		try:
+			import _updater
+			_updater.apply_update()
+		except Exception as exc:  # noqa: BLE001
+			self.unsetCursor()
+			QMessageBox.critical(
+				self, "Update failed",
+				f"Could not apply the update:\n{exc}\n\n"
+				"You can download the latest version manually from the releases page.")
+			return
+		# The swap script waits for this process to exit, then replaces the
+		# folder and relaunches — so close the app now.
+		self.close()
+
 	def _switch_to_classic(self):
 		"""Remember the choice, launch the classic Tkinter UI, and close this one."""
 		try:
@@ -2454,6 +2517,13 @@ def _bring_to_front(win) -> None:
 
 
 def main() -> None:
+	# Clean up any leftover files from a previous in-place update.
+	try:
+		import _updater
+		_updater.cleanup_old_exe()
+	except Exception:
+		pass
+
 	# Qt 6 enables high-DPI scaling by default; use rounded-up rounding policy
 	# so 125% / 150% Windows scaling stays crisp.
 	QApplication.setHighDpiScaleFactorRoundingPolicy(
@@ -2500,6 +2570,9 @@ def main() -> None:
 		if splash is not None:
 			splash.finish(win)
 		_bring_to_front(win)
+		# Check for updates ~3s after the window appears (parity with the
+		# legacy app). No-op when running from source.
+		QTimer.singleShot(3000, win.start_update_check)
 
 	if splash is not None:
 		QTimer.singleShot(750, _reveal)

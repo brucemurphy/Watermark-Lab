@@ -1,6 +1,6 @@
 {
-  "version": "2.0.1",
-  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v2.0.1/WatermarkLab.zip",
+  "version": "2.0.2",
+  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v2.0.2/WatermarkLab.zip",
   "sha256": "",
-  "notes": "Watermark Lab 2.0.1 - refinements and fixes.\n\nWhat's new:\n- Switch between the new and classic interface from the app - your choice is remembered\n- Browse dialogs reopen at your last folder (Documents by default)\n- The window now comes to the front on launch and when you switch interface\n- New 'Export PDF Only' button - exports just the PDF and tidies up the intermediate Office file\n\nFixes:\n- OneDrive-safe PowerPoint saving now also applies in the classic interface\n- Classic interface uses the proper app icon\n- Cleaner preset list and a gold (no longer blue) dropdown highlight\n\nUpgrading: existing users are offered this update automatically - click Yes to install; your presets and recent files are kept."
+  "notes": "Watermark Lab 2.0.2 - automatic updates restored.\n\nFixes:\n- The modern interface now checks for and offers updates on launch (the 2.0.0/2.0.1 rewrite was missing this check). From this version on, new releases install with one click.\n\nUpgrading: click Yes when prompted; your presets and recent files are kept."
 }

@@ -1,6 +1,6 @@
 {
-  "version": "2.0.3",
-  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v2.0.3/WatermarkLab.zip",
+  "version": "2.1.0",
+  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v2.1.0/WatermarkLab.zip",
   "sha256": "",
-  "notes": "Watermark Lab 2.0.3 - maintenance update.\n\n- Confirms the in-app auto-update flow end to end.\n- Minor housekeeping; no change to watermarking behaviour.\n\nUpgrading: click Yes when prompted; your presets and recent files are kept."
+  "notes": "Watermark Lab 2.1.0 - watermark existing PDFs.\n\nNew:\n- Watermark an existing PDF with the same tiled, diagonal style used for PowerPoint. Every page gets the watermark and the original content is preserved (it shows through the semi-transparent text).\n- PDFs work everywhere the other formats do: drag & drop, browse, batch a folder, live preview, colour and transparency.\n\nUpgrading: click Yes when prompted; your presets and recent files are kept."
 }

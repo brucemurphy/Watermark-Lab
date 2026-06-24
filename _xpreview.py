@@ -41,6 +41,7 @@ from PySide6.QtWidgets import QWidget
 PPT_EXTS   = {".pptx", ".ppt"}
 WORD_EXTS_ = {".docx", ".doc"}
 VIDEO_EXTS_ = {".mp4", ".mov", ".m4v", ".mkv", ".avi", ".webm"}
+PDF_EXTS_ = {".pdf"}
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _TARGET_W  = 1100   # rasterisation target width in px (quality vs. speed)
@@ -61,6 +62,8 @@ def file_kind(path: str) -> str:
 		return "word"
 	if e in VIDEO_EXTS_:
 		return "video"
+	if e in PDF_EXTS_:
+		return "pdf"
 	return "other"
 
 
@@ -359,6 +362,9 @@ def clean_background(path: str, target_w: int = _TARGET_W, cancel=None) -> QImag
 		return _word_page1_image(path, target_w, cancel=cancel)
 	if kind == "video":
 		return _video_frame(path, target_w)
+	if kind == "pdf":
+		# A PDF is already renderable — rasterise its first page directly.
+		return rasterize_pdf_page(path, 0, target_w)
 	return QImage()
 
 

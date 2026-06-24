@@ -29,11 +29,12 @@ from _xpowerpoint import add_watermark  # experimental: OneDrive-safe save
 from _word import WORD_EXTS
 from _xword import add_word_watermark  # experimental: snug, wrapped Word watermark
 from _video import add_video_watermark, VIDEO_EXTS, is_video_file
+from _pdf import add_pdf_watermark, PDF_EXTS  # watermark an existing PDF
 from _ffmpeg import is_ffmpeg_cached, download_ffmpeg, FfmpegNotReadyError
 from _xpreview import PreviewController, PreviewCanvas, file_kind
 
 PPT_EXTS = {".pptx", ".ppt"}
-ALL_SUPPORTED = PPT_EXTS | WORD_EXTS | VIDEO_EXTS
+ALL_SUPPORTED = PPT_EXTS | WORD_EXTS | VIDEO_EXTS | PDF_EXTS
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_ICO   = os.path.join(SCRIPT_DIR, "Watermark.ico")
@@ -938,8 +939,11 @@ class ProcessWorker(QObject):
 										export_pdf=self._export_pdf)
 				elif kind == "word":
 					out = add_word_watermark(path, self._text, color_rgb=self._color_rgb,
-											 transparency=self._transparency,
-											 export_pdf=self._export_pdf)
+										 transparency=self._transparency,
+										 export_pdf=self._export_pdf)
+				elif kind == "pdf":
+					out = add_pdf_watermark(path, self._text, color_rgb=self._color_rgb,
+										transparency=self._transparency)
 				elif kind == "video":
 					out = add_video_watermark(path, self._text, color_rgb=self._color_rgb,
 											  transparency=self._transparency,
@@ -1789,8 +1793,8 @@ class WatermarkLabX(QMainWindow):
 	def _pick_file(self):
 		path, _ = QFileDialog.getOpenFileName(
 			self, "Select a file to watermark", load_last_dir(),
-			"Supported files (*.pptx *.ppt *.docx *.doc *.mp4 *.mov *.m4v *.mkv *.avi *.webm);;"
-			"PowerPoint (*.pptx *.ppt);;Word (*.docx *.doc);;"
+			"Supported files (*.pptx *.ppt *.docx *.doc *.pdf *.mp4 *.mov *.m4v *.mkv *.avi *.webm);;"
+			"PowerPoint (*.pptx *.ppt);;Word (*.docx *.doc);;PDF (*.pdf);;"
 			"Video (*.mp4 *.mov *.m4v *.mkv *.avi *.webm);;All files (*.*)",
 		)
 		if path:
@@ -2126,8 +2130,10 @@ class WatermarkLabX(QMainWindow):
 		if not self.wm_text.text().strip():
 			self.status_lbl.setText("Enter watermark text.")
 			return
-		# Only Office files can export PDF; warn if the selection is video-only.
-		if all(file_kind(f) == "video" for f in self._files):
+		# The Export-PDF button only makes sense for Office files (it produces a
+		# PDF alongside the watermarked .pptx/.docx). Video can't export PDF, and
+		# a PDF input is already a PDF — so require at least one Office file.
+		if not any(file_kind(f) in ("ppt", "word") for f in self._files):
 			self.status_lbl.setText("PDF export applies to PowerPoint / Word only.")
 			return
 		self._start_processing(export_only=True)

@@ -1,7 +1,7 @@
 # Watermark Lab
 
-> **Version 2.0.3** — PySide6/Qt rewrite with true-render live preview  
-> A lightweight Windows desktop tool for applying professional, tiled, diagonal watermarks to PowerPoint, Word and video files.
+> **Version 2.1.0** — PySide6/Qt rewrite with true-render live preview  
+> A lightweight Windows desktop tool for applying professional, tiled, diagonal watermarks to PowerPoint, Word, PDF and video files.
 
 ---
 
@@ -27,6 +27,7 @@ Watermark Lab lets you stamp any PowerPoint, Word or video file with a customisa
 | **True-render live preview** | A faithful, pixel-accurate preview of the actual watermarked output — rendered via Qt's PDF engine — updates as you edit text, colour and transparency. |
 | **PowerPoint watermarking** | `.pptx` / `.ppt` — tiled diagonal text shape added to every slide. Fully editable output. OneDrive-safe saving. |
 | **Word watermarking** | `.docx` / `.doc` — native diagonal watermark via Word's own VML format. Snug, auto-wrapped text. |
+| **PDF watermarking** | `.pdf` — the same tiled diagonal style stamped on every page; original page content is preserved under the semi-transparent text. |
 | **Video watermarking** | `.mp4` `.mov` `.m4v` `.mkv` `.avi` `.webm` — PNG overlay composited via ffmpeg. Audio stream-copied, no quality loss. |
 | **Drag & drop** | Drop a file straight onto the app, or browse for a file or a whole folder. |
 | **Custom watermark text** | Any text — default is `CONFIDENTIAL`. Wraps automatically; up to 100 characters. |
@@ -56,7 +57,7 @@ Watermark Lab lets you stamp any PowerPoint, Word or video file with a customisa
 ### Running from source
 
 ```powershell
-pip install PySide6 pywin32 Pillow packaging python-docx
+pip install PySide6 pywin32 Pillow packaging python-docx pypdf
 python Watermark_Lab.pyw
 ```
 
@@ -79,7 +80,7 @@ No installer, no admin rights needed.
 ```powershell
 git clone https://github.com/brucemurphy/Watermark-Lab.git
 cd Watermark-Lab
-pip install PySide6 pywin32 Pillow packaging python-docx
+pip install PySide6 pywin32 Pillow packaging python-docx pypdf
 python Watermark_Lab.pyw
 ```
 
@@ -167,6 +168,7 @@ The upgrade path is automatic — **no reinstall required**.
 | `_xword.py` | Snug, auto-wrapped Word watermark |
 | `_powerpoint.py` | PowerPoint COM watermarking engine (shared) |
 | `_word.py` | Word VML watermarking engine (shared) |
+| `_pdf.py` | PDF watermarking via Pillow + pypdf (shared) |
 | `_video.py` | Video watermarking via ffmpeg + Pillow (shared) |
 | `_ffmpeg.py` | ffmpeg auto-download and path resolution |
 | `_updater.py` | GitHub Releases auto-update logic |
@@ -184,7 +186,7 @@ The upgrade path is automatic — **no reinstall required**.
 The release workflow builds automatically via GitHub Actions on every version tag push. To build locally:
 
 ```powershell
-pip install pyinstaller PySide6 pywin32 Pillow packaging python-docx
+pip install pyinstaller PySide6 pywin32 Pillow packaging python-docx pypdf
 pyinstaller WatermarkLab.spec
 ```
 
@@ -210,6 +212,7 @@ This repository does **not** redistribute any third-party binaries.
 | **Pillow** | HPND / MIT-CMU | Used for watermark image generation. https://python-pillow.org |
 | **pywin32** | PSF License | Used for PowerPoint / Word COM automation. https://github.com/mhammond/pywin32 |
 | **python-docx** | MIT | Used for Word VML watermark injection. https://github.com/python-openxml/python-docx |
+| **pypdf** | BSD | Used to composite watermarks onto existing PDFs. https://github.com/py-pdf/pypdf |
 | **packaging** | Apache 2.0 / BSD | Used for version comparison. https://github.com/pypa/packaging |
 
 ---

@@ -27,8 +27,9 @@ a = Analysis(
     hiddenimports=[
         'packaging', 'packaging.version',
         '_ffmpeg', '_updater', '_version', '_word', '_prefs',
-        '_powerpoint', '_video',
+        '_powerpoint', '_video', '_pdf',
         '_xpreview', '_xpowerpoint', '_xword',
+        'pypdf',
         'PySide6.QtCore', 'PySide6.QtGui', 'PySide6.QtWidgets', 'PySide6.QtPdf',
         'docx', 'docx.oxml.ns', 'lxml', 'lxml.etree',
         'PIL._imaging',

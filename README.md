@@ -3,6 +3,10 @@
 > **Version 2.1.0** — PySide6/Qt rewrite with true-render live preview  
 > A lightweight Windows desktop tool for applying professional, tiled, diagonal watermarks to PowerPoint, Word, PDF and video files.
 
+<p align="center">
+  <img src="docs/screenshot.png" alt="Watermark Lab — main window showing the watermark text, live preview, colour and transparency controls" width="900">
+</p>
+
 ---
 
 ## Overview

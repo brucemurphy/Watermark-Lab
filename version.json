@@ -1,6 +1,6 @@
 {
-  "version": "2.0.2",
-  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v2.0.2/WatermarkLab.zip",
+  "version": "2.0.3",
+  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v2.0.3/WatermarkLab.zip",
   "sha256": "",
-  "notes": "Watermark Lab 2.0.2 - automatic updates restored.\n\nFixes:\n- The modern interface now checks for and offers updates on launch (the 2.0.0/2.0.1 rewrite was missing this check). From this version on, new releases install with one click.\n\nUpgrading: click Yes when prompted; your presets and recent files are kept."
+  "notes": "Watermark Lab 2.0.3 - maintenance update.\n\n- Confirms the in-app auto-update flow end to end.\n- Minor housekeeping; no change to watermarking behaviour.\n\nUpgrading: click Yes when prompted; your presets and recent files are kept."
 }

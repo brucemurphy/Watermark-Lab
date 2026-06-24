@@ -21,9 +21,6 @@ import tempfile
 _MAX_RECENT = 8
 _FILES = ("presets.json", "recent.json", "settings.json")
 
-_VALID_UI_MODES = ("modern", "classic")
-_DEFAULT_UI_MODE = "modern"
-
 
 def _is_frozen():
     return getattr(sys, "frozen", False)
@@ -163,30 +160,6 @@ def add_recent(path):
         recent.remove(path)
     recent.insert(0, path)
     _save("recent.json", recent[:_MAX_RECENT])
-
-
-def load_ui_mode():
-    """Return the remembered UI mode: "modern" (Qt) or "classic" (Tkinter).
-
-    Falls back to the default if settings.json is missing or invalid.
-    """
-    data = _load("settings.json")
-    if isinstance(data, dict):
-        mode = data.get("ui_mode")
-        if mode in _VALID_UI_MODES:
-            return mode
-    return _DEFAULT_UI_MODE
-
-
-def save_ui_mode(mode):
-    """Persist the chosen UI mode; ignores anything outside the valid set."""
-    if mode not in _VALID_UI_MODES:
-        return
-    data = _load("settings.json")
-    if not isinstance(data, dict):
-        data = {}
-    data["ui_mode"] = mode
-    _save("settings.json", data)
 
 
 def _default_browse_dir():

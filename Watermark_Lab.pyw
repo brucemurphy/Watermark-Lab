@@ -4,36 +4,12 @@ This is the primary application entry point. It reuses the shared backend
 modules (_powerpoint, _word, _video, _prefs, _ffmpeg, _updater, _version)
 together with the Qt-specific helpers (_xpowerpoint, _xword, _xpreview) to
 deliver a three-pane interface with a live, pixel-accurate watermark preview.
-
-The previous Tkinter front-end is preserved for reference under
-``previous_version/Watermark_Lab.pyw``.
 """
 from __future__ import annotations
 
 import os
 import subprocess
 import sys
-
-# ── UI-mode early dispatch ───────────────────────────────────────────────────
-# Honour the remembered UI choice before importing Qt. If the user last picked
-# the classic (Tkinter) UI and this process wasn't explicitly forced here,
-# launch the legacy front-end and exit — so a cold start reopens in the chosen
-# UI without ever loading PySide6. The FORCED_FLAG (set by a relaunch) skips
-# this so switching always lands in the requested UI without looping.
-def _dispatch_ui_mode() -> None:
-	try:
-		import _uiswitch
-		import _prefs
-	except Exception:
-		return  # switching unavailable — fall through to the modern UI
-	if _uiswitch.is_forced():
-		return
-	if _prefs.load_ui_mode() == _uiswitch.MODE_CLASSIC:
-		if _uiswitch.relaunch(_uiswitch.MODE_CLASSIC):
-			sys.exit(0)
-
-
-_dispatch_ui_mode()
 
 from PySide6.QtCore import Qt, QPoint, QSize, Signal, QEvent, QPropertyAnimation, Property, QRectF, QThread, QObject, QTimer, QPointF
 from PySide6.QtGui import QIcon, QPixmap, QFont, QPainter, QColor, QBrush, QPen, QPainterPath, QImage
@@ -97,7 +73,6 @@ ICON_MORE     = "more"
 ICON_CHEVRON  = "chevron"
 ICON_EYE      = "eye"
 ICON_EYE_OFF  = "eye_off"
-ICON_APP      = "app_window"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Palette — tuned to the mockup (darker, bluer than the legacy Tkinter theme)
@@ -227,26 +202,6 @@ def _draw_icon(p: QPainter, name: str, s: float, c: QColor) -> None:
         p.drawEllipse(QPointF(cx, cy - s * 0.17), s * 0.045, s * 0.045)
         p.setBrush(Qt.NoBrush)
         p.drawLine(QPointF(cx, cy - s * 0.04), QPointF(cx, cy + s * 0.17))
-
-    elif name == "app_window":
-        # Rounded application window: title bar with three dots + a centered
-        # check inside a circle (echoes the app-tile artwork).
-        x, y, w, h = s * 0.14, s * 0.18, s * 0.72, s * 0.64
-        p.drawRoundedRect(QRectF(x, y, w, h), s * 0.10, s * 0.10)
-        bar_y = y + s * 0.15
-        p.drawLine(QPointF(x, bar_y), QPointF(x + w, bar_y))
-        dot_r = s * 0.025
-        p.setBrush(QBrush(c))
-        for k in range(3):
-            p.drawEllipse(QPointF(x + s * 0.09 + k * s * 0.07, y + s * 0.075),
-                          dot_r, dot_r)
-        p.setBrush(Qt.NoBrush)
-        # Check inside a circle in the content area.
-        ccy = bar_y + (y + h - bar_y) / 2.0
-        cr = s * 0.16
-        p.drawEllipse(QPointF(cx, ccy), cr, cr)
-        p.drawLine(QPointF(cx - s * 0.07, ccy), QPointF(cx - s * 0.015, ccy + s * 0.06))
-        p.drawLine(QPointF(cx - s * 0.015, ccy + s * 0.06), QPointF(cx + s * 0.08, ccy - s * 0.06))
 
     elif name == "text":
         # Capital "A" mark for preset rows.
@@ -1759,16 +1714,6 @@ class WatermarkLabX(QMainWindow):
 		v.addWidget(status)
 		v.addStretch(1)
 
-		# ── Switch to classic UI ───────────────────────────────────────
-		classic_btn = QPushButton("  Classic UI")
-		classic_btn.setObjectName("HelpLink")
-		classic_btn.setProperty("ghost", True)
-		classic_btn.setIcon(glyph_icon(ICON_APP, 15, MUTED))
-		classic_btn.setCursor(Qt.PointingHandCursor)
-		classic_btn.setToolTip("Switch to the classic (v1.4) interface and remember the choice")
-		classic_btn.clicked.connect(self._switch_to_classic)
-		v.addWidget(classic_btn, 0, Qt.AlignRight)
-
 		# ── Help & Support ─────────────────────────────────────────────
 		help_btn = QPushButton("  Help & Support")
 		help_btn.setObjectName("HelpLink")
@@ -2407,18 +2352,6 @@ class WatermarkLabX(QMainWindow):
 		# The swap script waits for this process to exit, then replaces the
 		# folder and relaunches — so close the app now.
 		self.close()
-
-	def _switch_to_classic(self):
-		"""Remember the choice, launch the classic Tkinter UI, and close this one."""
-		try:
-			import _uiswitch
-		except Exception:
-			self.status_lbl.setText("Classic UI is unavailable.")
-			return
-		if _uiswitch.relaunch(_uiswitch.MODE_CLASSIC):
-			self.close()
-		else:
-			self.status_lbl.setText("Could not start the classic UI.")
 
 	def _set_status_state(self, title: str, subtitle: str):
 		"""Update the right-column status card headline + subtitle."""

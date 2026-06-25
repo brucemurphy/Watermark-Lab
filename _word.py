@@ -3,7 +3,7 @@
 Injects the exact header XML that Word's Design -> Watermark writes,
 per the ECMA-376 Office Open XML specification. No COM shape positioning.
 """
-import os, subprocess, sys, zipfile, shutil, tempfile
+import os, subprocess, sys
 import pythoncom
 import win32com.client
 from lxml import etree

@@ -11,8 +11,8 @@ import os
 import subprocess
 import sys
 
-from PySide6.QtCore import Qt, QPoint, QSize, Signal, QEvent, QPropertyAnimation, Property, QRectF, QThread, QObject, QTimer, QPointF
-from PySide6.QtGui import QIcon, QPixmap, QFont, QPainter, QColor, QBrush, QPen, QPainterPath, QImage
+from PySide6.QtCore import Qt, QPoint, QSize, Signal, QEvent, QPropertyAnimation, Property, QRectF, QThread, QObject, QTimer
+from PySide6.QtGui import QIcon, QPixmap, QFont, QPainter, QPen, QColor, QBrush, QImage
 from PySide6.QtWidgets import (
 	QApplication, QMainWindow, QWidget, QFrame, QLabel, QPushButton,
 	QHBoxLayout, QVBoxLayout, QFileDialog, QScrollArea, QMenu, QSizePolicy,
@@ -22,15 +22,15 @@ from PySide6.QtWidgets import (
 
 from _version import APP_VERSION
 from _prefs import (
-	load_presets, save_preset, delete_preset, load_recent, add_recent,
+	load_presets, save_preset, delete_preset, add_recent,
 	load_last_dir, save_last_dir,
 )
 from _xpowerpoint import add_watermark  # experimental: OneDrive-safe save
 from _word import WORD_EXTS
 from _xword import add_word_watermark  # experimental: snug, wrapped Word watermark
-from _video import add_video_watermark, VIDEO_EXTS, is_video_file
+from _video import add_video_watermark, VIDEO_EXTS
 from _pdf import add_pdf_watermark, PDF_EXTS  # watermark an existing PDF
-from _ffmpeg import is_ffmpeg_cached, download_ffmpeg, FfmpegNotReadyError
+from _ffmpeg import download_ffmpeg, FfmpegNotReadyError
 from _xpreview import PreviewController, PreviewCanvas, file_kind
 
 PPT_EXTS = {".pptx", ".ppt"}
@@ -97,231 +97,91 @@ DANGER        = "#f0556b"   # delete / error red
 PREVIEW_BG    = "#0a0d12"   # canvas backdrop behind the document
 
 
+_ICON_FONT_FAMILY = None
+
+
+def _resolve_icon_font_family() -> str:
+    """Load the Windows icon font (Segoe Fluent Icons, then MDL2 Assets) and
+    return its family name. Loading the .ttf by path is more reliable than a
+    bare family lookup. Falls back to 'Segoe MDL2 Assets' which ships on
+    Windows 10+."""
+    global _ICON_FONT_FAMILY
+    if _ICON_FONT_FAMILY is not None:
+        return _ICON_FONT_FAMILY
+    from PySide6.QtGui import QFontDatabase
+    for path, fallback in (
+        (r"C:\Windows\Fonts\SegoeIcons.ttf", "Segoe Fluent Icons"),
+        (r"C:\Windows\Fonts\segmdl2.ttf", "Segoe MDL2 Assets"),
+    ):
+        try:
+            if os.path.isfile(path):
+                fid = QFontDatabase.addApplicationFont(path)
+                fams = QFontDatabase.applicationFontFamilies(fid) if fid != -1 else []
+                _ICON_FONT_FAMILY = fams[0] if fams else fallback
+                return _ICON_FONT_FAMILY
+        except Exception:
+            pass
+    _ICON_FONT_FAMILY = "Segoe MDL2 Assets"
+    return _ICON_FONT_FAMILY
+
+
 def icon_font(size: int = 12) -> QFont:
-    """Return the best available Windows icon font at the given pixel size."""
-    for family in ("Segoe Fluent Icons", "Segoe MDL2 Assets"):
-        f = QFont(family)
-        f.setPixelSize(size)
-        return f
-    return QFont("Segoe UI", size)
+    """Return the Windows icon font at the given pixel size."""
+    f = QFont(_resolve_icon_font_family())
+    f.setPixelSize(size)
+    return f
 
 
-def _draw_icon(p: QPainter, name: str, s: float, c: QColor) -> None:
-    """Paint a single vector icon into a logical s-by-s box at the origin."""
-    cx, cy = s / 2.0, s / 2.0
-    p.setBrush(Qt.NoBrush)
-
-    if name in ("minus", "plus"):
-        half = s * 0.30
-        p.drawLine(QPointF(cx - half, cy), QPointF(cx + half, cy))
-        if name == "plus":
-            p.drawLine(QPointF(cx, cy - half), QPointF(cx, cy + half))
-
-    elif name in ("eye", "eye_off"):
-        w, h = s * 0.40, s * 0.26
-        path = QPainterPath()
-        path.moveTo(cx - w, cy)
-        path.quadTo(cx, cy - h * 2, cx + w, cy)
-        path.quadTo(cx, cy + h * 2, cx - w, cy)
-        p.drawPath(path)
-        r = s * 0.11
-        p.setBrush(QBrush(c)); p.drawEllipse(QPointF(cx, cy), r, r); p.setBrush(Qt.NoBrush)
-        if name == "eye_off":
-            d = s * 0.34
-            p.drawLine(QPointF(cx - d, cy - d), QPointF(cx + d, cy + d))
-
-    elif name == "fit":
-        a, head = s * 0.30, s * 0.12
-        for sx, sy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
-            x2, y2 = cx + sx * a, cy + sy * a
-            x1, y1 = cx + sx * (a * 0.45), cy + sy * (a * 0.45)
-            p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
-            p.drawLine(QPointF(x2, y2), QPointF(x2 - sx * head, y2))
-            p.drawLine(QPointF(x2, y2), QPointF(x2, y2 - sy * head))
-
-    elif name == "folder":
-        x, y, w, h = s * 0.16, s * 0.30, s * 0.68, s * 0.44
-        tab = QPainterPath()
-        tab.moveTo(x, y)
-        tab.lineTo(x + w * 0.34, y)
-        tab.lineTo(x + w * 0.46, y - s * 0.09)
-        tab.lineTo(x + w, y - s * 0.09)
-        p.drawPath(tab)
-        p.drawRoundedRect(QRectF(x, y, w, h), s * 0.06, s * 0.06)
-
-    elif name == "folder_add":
-        x, y, w, h = s * 0.14, s * 0.30, s * 0.62, s * 0.44
-        p.drawRoundedRect(QRectF(x, y, w, h), s * 0.06, s * 0.06)
-        # plus badge bottom-right
-        bx, by, hp = x + w, y + h, s * 0.13
-        p.drawLine(QPointF(bx - hp, by), QPointF(bx + hp, by))
-        p.drawLine(QPointF(bx, by - hp), QPointF(bx, by + hp))
-
-    elif name == "doc_add":
-        # Document with a plus — the drop zone glyph.
-        x, y, w, h = s * 0.26, s * 0.16, s * 0.40, s * 0.58
-        fold = s * 0.13
-        path = QPainterPath()
-        path.moveTo(x, y)
-        path.lineTo(x + w - fold, y)
-        path.lineTo(x + w, y + fold)
-        path.lineTo(x + w, y + h)
-        path.lineTo(x, y + h)
-        path.closeSubpath()
-        p.drawPath(path)
-        p.drawLine(QPointF(x + w - fold, y), QPointF(x + w - fold, y + fold))
-        p.drawLine(QPointF(x + w - fold, y + fold), QPointF(x + w, y + fold))
-        bx, by, hp = x + w * 0.5, y + h * 0.62, s * 0.11
-        p.drawLine(QPointF(bx - hp, by), QPointF(bx + hp, by))
-        p.drawLine(QPointF(bx, by - hp), QPointF(bx, by + hp))
-
-    elif name == "settings":
-        # Gear: outer ring + teeth + hub.
-        import math
-        rout, rin, hub = s * 0.34, s * 0.22, s * 0.10
-        teeth = QPainterPath()
-        for k in range(8):
-            ang = math.radians(k * 45)
-            x1 = cx + rout * math.cos(ang)
-            y1 = cy + rout * math.sin(ang)
-            if k == 0:
-                teeth.moveTo(x1, y1)
-            else:
-                teeth.lineTo(x1, y1)
-        p.drawEllipse(QPointF(cx, cy), rin, rin)
-        for k in range(8):
-            ang = math.radians(k * 45)
-            x1 = cx + rin * math.cos(ang); y1 = cy + rin * math.sin(ang)
-            x2 = cx + rout * math.cos(ang); y2 = cy + rout * math.sin(ang)
-            p.drawLine(QPointF(x1, y1), QPointF(x2, y2))
-        p.setBrush(QBrush(c)); p.drawEllipse(QPointF(cx, cy), hub, hub); p.setBrush(Qt.NoBrush)
-
-    elif name == "info":
-        r = s * 0.36
-        p.drawEllipse(QPointF(cx, cy), r, r)
-        p.setBrush(QBrush(c))
-        p.drawEllipse(QPointF(cx, cy - s * 0.17), s * 0.045, s * 0.045)
-        p.setBrush(Qt.NoBrush)
-        p.drawLine(QPointF(cx, cy - s * 0.04), QPointF(cx, cy + s * 0.17))
-
-    elif name == "text":
-        # Capital "A" mark for preset rows.
-        p.drawLine(QPointF(cx - s * 0.20, cy + s * 0.22), QPointF(cx, cy - s * 0.24))
-        p.drawLine(QPointF(cx, cy - s * 0.24), QPointF(cx + s * 0.20, cy + s * 0.22))
-        p.drawLine(QPointF(cx - s * 0.11, cy + s * 0.04), QPointF(cx + s * 0.11, cy + s * 0.04))
-
-    elif name == "more":
-        r = s * 0.045
-        p.setBrush(QBrush(c))
-        for dy in (-s * 0.20, 0, s * 0.20):
-            p.drawEllipse(QPointF(cx, cy + dy), r, r)
-        p.setBrush(Qt.NoBrush)
-
-    elif name == "chevron":
-        w, h = s * 0.16, s * 0.22
-        p.drawLine(QPointF(cx - w * 0.5, cy - h), QPointF(cx + w, cy))
-        p.drawLine(QPointF(cx + w, cy), QPointF(cx - w * 0.5, cy + h))
-
-    elif name == "save":
-        x, y, w, h = s * 0.20, s * 0.20, s * 0.60, s * 0.60
-        path = QPainterPath()
-        path.moveTo(x, y); path.lineTo(x + w - s * 0.12, y)
-        path.lineTo(x + w, y + s * 0.12); path.lineTo(x + w, y + h)
-        path.lineTo(x, y + h); path.closeSubpath()
-        p.drawPath(path)
-        p.drawRect(QRectF(x + s * 0.14, y + h - s * 0.22, w - s * 0.28, s * 0.22))
-        p.drawRect(QRectF(x + s * 0.16, y, w - s * 0.40, s * 0.14))
-
-    elif name == "trash":
-        x, w = s * 0.26, s * 0.48
-        top, bot = s * 0.32, s * 0.78
-        p.drawLine(QPointF(x - s * 0.04, top), QPointF(x + w + s * 0.04, top))   # lid
-        p.drawLine(QPointF(cx - s * 0.08, top - s * 0.06), QPointF(cx + s * 0.08, top - s * 0.06))  # handle
-        body = QPainterPath()
-        body.moveTo(x + s * 0.02, top)
-        body.lineTo(x + s * 0.06, bot)
-        body.lineTo(x + w - s * 0.06, bot)
-        body.lineTo(x + w - s * 0.02, top)
-        p.drawPath(body)
-        for dx in (-s * 0.10, 0, s * 0.10):
-            p.drawLine(QPointF(cx + dx, top + s * 0.08), QPointF(cx + dx, bot - s * 0.06))
-
-    elif name == "eyedropper":
-        # Diagonal dropper.
-        p.drawLine(QPointF(s * 0.30, s * 0.70), QPointF(s * 0.62, s * 0.38))
-        p.drawEllipse(QRectF(s * 0.58, s * 0.16, s * 0.22, s * 0.22))
-        p.setBrush(QBrush(c)); p.drawEllipse(QPointF(s * 0.30, s * 0.70), s * 0.05, s * 0.05); p.setBrush(Qt.NoBrush)
-
-    elif name == "stamp":
-        # Approval stamp.
-        p.drawLine(QPointF(cx, cy - s * 0.30), QPointF(cx, cy + s * 0.02))
-        p.drawEllipse(QRectF(cx - s * 0.16, cy - s * 0.34, s * 0.32, s * 0.20))
-        p.drawLine(QPointF(s * 0.24, cy + s * 0.10), QPointF(s * 0.76, cy + s * 0.10))
-        p.drawLine(QPointF(s * 0.20, cy + s * 0.28), QPointF(s * 0.80, cy + s * 0.28))
-
-    elif name == "export":
-        # Up arrow out of a tray.
-        p.drawLine(QPointF(cx, cy - s * 0.30), QPointF(cx, cy + s * 0.12))
-        p.drawLine(QPointF(cx, cy - s * 0.30), QPointF(cx - s * 0.14, cy - s * 0.14))
-        p.drawLine(QPointF(cx, cy - s * 0.30), QPointF(cx + s * 0.14, cy - s * 0.14))
-        p.drawLine(QPointF(s * 0.22, cy + s * 0.20), QPointF(s * 0.22, cy + s * 0.34))
-        p.drawLine(QPointF(s * 0.22, cy + s * 0.34), QPointF(s * 0.78, cy + s * 0.34))
-        p.drawLine(QPointF(s * 0.78, cy + s * 0.34), QPointF(s * 0.78, cy + s * 0.20))
-
-    elif name == "check":
-        p.drawLine(QPointF(s * 0.26, cy + s * 0.02), QPointF(s * 0.44, cy + s * 0.20))
-        p.drawLine(QPointF(s * 0.44, cy + s * 0.20), QPointF(s * 0.76, cy - s * 0.20))
-
-    elif name == "help":
-        r = s * 0.34
-        p.drawEllipse(QPointF(cx, cy), r, r)
-        q = QPainterPath()
-        q.moveTo(cx - s * 0.10, cy - s * 0.08)
-        q.quadTo(cx - s * 0.10, cy - s * 0.22, cx, cy - s * 0.22)
-        q.quadTo(cx + s * 0.14, cy - s * 0.22, cx + s * 0.12, cy - s * 0.05)
-        q.quadTo(cx + s * 0.10, cy + s * 0.03, cx, cy + s * 0.06)
-        p.drawPath(q)
-        p.setBrush(QBrush(c)); p.drawEllipse(QPointF(cx, cy + s * 0.20), s * 0.04, s * 0.04); p.setBrush(Qt.NoBrush)
-
-    elif name == "win_min":
-        y = cy + s * 0.02
-        p.drawLine(QPointF(s * 0.30, y), QPointF(s * 0.70, y))
-
-    elif name == "win_max":
-        r = s * 0.20
-        p.drawRect(QRectF(cx - r, cy - r, r * 2, r * 2))
-
-    elif name == "win_restore":
-        r = s * 0.17
-        off = s * 0.07
-        # Back square (top-right)
-        p.drawRect(QRectF(cx - r + off, cy - r - off, r * 2, r * 2))
-        # Front square (bottom-left), drawn over to look layered
-        p.fillRect(QRectF(cx - r - off + 0.5, cy - r + off + 0.5,
-                          r * 2 - 1, r * 2 - 1), QColor(BG))
-        p.drawRect(QRectF(cx - r - off, cy - r + off, r * 2, r * 2))
-
-    elif name == "win_close":
-        d = s * 0.22
-        p.drawLine(QPointF(cx - d, cy - d), QPointF(cx + d, cy + d))
-        p.drawLine(QPointF(cx + d, cy - d), QPointF(cx - d, cy + d))
+# Map our internal icon names to Segoe Fluent Icons codepoints (these glyphs
+# are also present in Segoe MDL2 Assets, so the Win10 fallback matches).
+_FLUENT = {
+    "folder":      "\uE8B7",  # Folder
+    "folder_add":  "\uE8F4",  # NewFolder
+    "doc_add":     "\uE7C3",  # Page (document)
+    "plus":        "\uE710",  # Add
+    "minus":       "\uE738",  # Remove
+    "settings":    "\uE713",  # Settings (gear)
+    "save":        "\uE74E",  # Save
+    "trash":       "\uE74D",  # Delete
+    "info":        "\uE946",  # Info
+    "text":        "\uE8D2",  # Font / text
+    "more":        "\uE712",  # More (horizontal ellipsis)
+    "chevron":     "\uE76C",  # ChevronRight
+    "eyedropper":  "\uE790",  # Color (eyedropper)
+    "stamp":       "\uEB95",  # Certificate (seal) — "Apply Watermark"
+    "export":      "\uEDE1",  # Share / export
+    "check":       "\uE73E",  # CheckMark / Accept
+    "help":        "\uE897",  # Help
+    "eye":         "\uE7B3",  # View
+    "eye_off":     "\uED1A",  # Hide
+    "fit":         "\uE9A6",  # FullScreen / fit
+    "win_min":     "\uE921",  # ChromeMinimize
+    "win_max":     "\uE922",  # ChromeMaximize
+    "win_restore": "\uE923",  # ChromeRestore
+    "win_close":   "\uE8BB",  # ChromeClose
+}
 
 
 def vector_icon(name: str, size: int = 16, color: str = FG_SOFT,
                 dpr: float = 2.0) -> QIcon:
-    """Draw a crisp toolbar/UI icon with QPainter (no icon-font dependency)."""
+    """Render a native Windows icon (Segoe Fluent Icons glyph) as a crisp,
+    DPR-aware QIcon. Falls back to the legacy path drawing for any name not in
+    the Fluent map."""
     px = max(8, int(size * dpr))
     pm = QPixmap(px, px)
     pm.setDevicePixelRatio(dpr)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing, True)
+    p.setRenderHint(QPainter.TextAntialiasing, True)
     c = QColor(color)
-    pen = QPen(c, max(1.4, size * 0.095))
-    pen.setCapStyle(Qt.RoundCap)
-    pen.setJoinStyle(Qt.RoundJoin)
-    p.setPen(pen)
-    _draw_icon(p, name, float(size), c)
+
+    glyph = _FLUENT.get(name, "\uE783")  # default: 'Error' ring if name unknown
+    f = icon_font(int(size * 0.92))
+    p.setFont(f)
+    p.setPen(c)
+    # Draw centred in the logical size box (QPixmap is DPR-scaled).
+    p.drawText(QRectF(0, 0, size, size), Qt.AlignCenter, glyph)
     p.end()
     return QIcon(pm)
 
@@ -360,6 +220,36 @@ def build_qss() -> str:
 		border: 1px solid {BORDER};
 		border-radius: 10px;
 	}}
+
+	/* ── Dialogs & message boxes ───────────────────────────────────────
+	   QMessageBox / QInputDialog / QColorDialog inherit the *system* palette,
+	   not #Root, so on a light-mode PC they'd show the app's near-white text on
+	   a white system background (unreadable). Pin them to the dark theme here so
+	   they look the same regardless of the OS light/dark setting. */
+	QDialog, QMessageBox, QInputDialog, QColorDialog {{
+		background: {PANEL};
+		color: {FG};
+	}}
+	QDialog QLabel, QMessageBox QLabel, QInputDialog QLabel {{
+		background: transparent;
+		color: {FG};
+	}}
+	QMessageBox QPushButton, QDialog QPushButton, QInputDialog QPushButton {{
+		background: {PANEL_HI};
+		border: 1px solid {BORDER};
+		border-radius: 8px;
+		color: {FG};
+		padding: 6px 16px;
+		min-width: 72px;
+	}}
+	QMessageBox QPushButton:hover, QDialog QPushButton:hover,
+	QInputDialog QPushButton:hover {{ background: {BORDER}; border-color: {BORDER_HI}; }}
+	QMessageBox QPushButton:default, QDialog QPushButton:default,
+	QInputDialog QPushButton:default {{
+		background: {ACCENT}; color: {ACCENT_FG}; border-color: {ACCENT};
+	}}
+	QMessageBox QPushButton:default:hover, QDialog QPushButton:default:hover,
+	QInputDialog QPushButton:default:hover {{ background: {ACCENT_HOVER}; border-color: {ACCENT_HOVER}; }}
 
 	/* ── Title bar ─────────────────────────────────────────────────── */
 	#TitleBar {{ background: transparent; }}
@@ -575,6 +465,7 @@ def build_qss() -> str:
 		background: rgba(63,185,80,0.14);
 		border-radius: 18px;
 	}}
+	#StatusBadge[state="fail"] {{ background: rgba(240,85,107,0.20); }}
 	#StatusReady {{ font-size: 14px; font-weight: 700; color: {FG}; }}
 	#StatusReadySub {{ font-size: 11px; color: {MUTED}; }}
 	#StatRowKey {{ color: {FG_SOFT}; font-size: 13px; }}
@@ -601,6 +492,7 @@ def build_qss() -> str:
 		color: {FG};
 		padding: 4px 6px;
 	}}
+	#PvZoom QLineEdit {{ background: transparent; border: none; padding: 0; color: {FG}; }}
 	#PvZoom::drop-down {{ width: 14px; border: none; }}
 
 	/* ── Status bar ────────────────────────────────────────────────── */
@@ -712,7 +604,7 @@ class PresetRow(QFrame):
 
 		icon = QLabel()
 		icon.setObjectName("PresetIcon")
-		icon.setPixmap(vector_pixmap(ICON_TEXT, 15, color or ACCENT))
+		icon.setPixmap(vector_pixmap(ICON_TEXT, 18, color or ACCENT))
 		icon.setFixedSize(32, 32)
 		icon.setAlignment(Qt.AlignCenter)
 		if color:
@@ -874,6 +766,77 @@ class ToggleSwitch(QWidget):
 		p.end()
 
 
+class SpinnerWidget(QWidget):
+	"""A small indeterminate spinner — a gold arc sweeping around a faint ring.
+
+	Used as the Status badge icon while a job is processing. The animation only
+	runs while the widget is visible and started, so it costs nothing when idle.
+	"""
+
+	def __init__(self, diameter: int = 16, parent=None):
+		super().__init__(parent)
+		self._d = diameter
+		self._angle = 0
+		self.setFixedSize(diameter, diameter)
+		self._anim = QPropertyAnimation(self, b"angle", self)
+		self._anim.setStartValue(0)
+		self._anim.setEndValue(360)
+		self._anim.setDuration(900)
+		self._anim.setLoopCount(-1)
+
+	def start(self):
+		if self._anim.state() != QPropertyAnimation.Running:
+			self._anim.start()
+
+	def stop(self):
+		self._anim.stop()
+
+	def _get_angle(self):
+		return self._angle
+
+	def _set_angle(self, v):
+		self._angle = v
+		self.update()
+
+	angle = Property(int, _get_angle, _set_angle)
+
+	def paintEvent(self, _e):
+		p = QPainter(self)
+		p.setRenderHint(QPainter.Antialiasing, True)
+		m = 2.0
+		rect = QRectF(m, m, self._d - 2 * m, self._d - 2 * m)
+		# Faint full track.
+		track = QColor(ACCENT); track.setAlpha(60)
+		p.setPen(QPen(track, 2.2))
+		p.drawArc(rect, 0, 360 * 16)
+		# Bright moving arc (~100° sweep), measured in 1/16-degree units.
+		p.setPen(QPen(QColor(ACCENT), 2.2, Qt.SolidLine, Qt.RoundCap))
+		p.drawArc(rect, -self._angle * 16, 100 * 16)
+		p.end()
+
+
+class CrossIcon(QWidget):
+	"""A heavy, high-contrast X for the failed status badge.
+
+	Drawn (not a glyph) so the thick rounded strokes read as a bold mark
+	against the red-tinted badge.
+	"""
+
+	def __init__(self, diameter: int = 18, parent=None):
+		super().__init__(parent)
+		self._d = diameter
+		self.setFixedSize(diameter, diameter)
+
+	def paintEvent(self, _e):
+		p = QPainter(self)
+		p.setRenderHint(QPainter.Antialiasing, True)
+		m, d = 3, self._d
+		p.setPen(QPen(QColor(DANGER), 3.0, Qt.SolidLine, Qt.RoundCap))
+		p.drawLine(m, m, d - m, d - m)
+		p.drawLine(d - m, m, m, d - m)
+		p.end()
+
+
 def _friendly_error(exc: Exception) -> str:
 	"""Translate noisy COM / backend errors into plain language for the user."""
 	msg = str(exc)
@@ -904,6 +867,7 @@ class ProcessWorker(QObject):
 	progress   = Signal(int, int, str)   # done, total, current basename
 	fileDone   = Signal(str)             # output path of a finished file
 	encode     = Signal(float)           # video encode seconds processed
+	pageProgress = Signal(int, int)      # pdf pages done, total pages
 	finished   = Signal(int, list, str)  # done_count, errors, last_output_path
 	needFfmpeg = Signal()                # ffmpeg missing for a video job
 
@@ -943,7 +907,8 @@ class ProcessWorker(QObject):
 										 export_pdf=self._export_pdf)
 				elif kind == "pdf":
 					out = add_pdf_watermark(path, self._text, color_rgb=self._color_rgb,
-										transparency=self._transparency)
+										transparency=self._transparency,
+										progress_cb=lambda d, t: self.pageProgress.emit(d, t))
 				elif kind == "video":
 					out = add_video_watermark(path, self._text, color_rgb=self._color_rgb,
 											  transparency=self._transparency,
@@ -1527,10 +1492,16 @@ class WatermarkLabX(QMainWindow):
 		self.pv_zoom_combo = QComboBox()
 		self.pv_zoom_combo.setObjectName("PvZoom")
 		self.pv_zoom_combo.setFixedHeight(28)
-		self.pv_zoom_combo.addItems(["50%", "75%", "100%", "125%", "150%", "200%"])
+		self.pv_zoom_combo.setFixedWidth(72)   # fits up to "800%" + dropdown arrow
+		self.pv_zoom_combo.addItems(["50%", "75%", "100%", "125%", "150%", "200%", "400%"])
 		self.pv_zoom_combo.setCurrentText("100%")
-		self.pv_zoom_combo.setEditable(False)
+		# Editable so the readout can show any zoom the +/- buttons reach (not just
+		# the preset items) and so the user can type an exact value.
+		self.pv_zoom_combo.setEditable(True)
+		self.pv_zoom_combo.lineEdit().setAlignment(Qt.AlignCenter)
+		self.pv_zoom_combo.setInsertPolicy(QComboBox.NoInsert)
 		self.pv_zoom_combo.activated.connect(self._on_zoom_combo)
+		self.pv_zoom_combo.lineEdit().editingFinished.connect(self._on_zoom_combo)
 		group.addWidget(self.pv_zoom_combo)
 
 		group.addSpacing(6)
@@ -1574,14 +1545,16 @@ class WatermarkLabX(QMainWindow):
 		if hasattr(self, "pv_zoom_combo"):
 			self.pv_zoom_combo.blockSignals(True)
 			self.pv_zoom_combo.setCurrentText(txt)
+			self.pv_zoom_combo.lineEdit().setText(txt)
 			self.pv_zoom_combo.blockSignals(False)
 
-	def _on_zoom_combo(self, _idx: int):
-		txt = self.pv_zoom_combo.currentText().rstrip("%")
-		try:
-			pct = float(txt)
-		except ValueError:
+	def _on_zoom_combo(self, _idx=None):
+		raw = "".join(ch for ch in self.pv_zoom_combo.currentText() if ch.isdigit())
+		if not raw:
+			# Reset the field to the canvas's actual zoom and bail.
+			self._on_zoom_changed(self.preview_canvas.current_percent())
 			return
+		pct = max(10, min(800, int(raw)))   # clamp to the canvas zoom range
 		self.preview_canvas._set_zoom(pct / 100.0)
 
 	def _init_preview(self):
@@ -1621,7 +1594,16 @@ class WatermarkLabX(QMainWindow):
 
 	def _on_preview_busy(self, busy: bool):
 		if busy:
-			self.preview_canvas.set_placeholder("Loading preview…")
+			# Word / PowerPoint backdrops need a full high-resolution render, so
+			# the first preview of these can take a few moments — let the user
+			# know rather than leaving them staring at a bare "Loading…".
+			if self._files and file_kind(self._files[0]) in ("word", "ppt"):
+				self.preview_canvas.set_placeholder(
+					"⏳  Loading preview…\n\n"
+					"Generating a high-resolution render of this file,\n"
+					"so this preview can take a little while.")
+			else:
+				self.preview_canvas.set_placeholder("Loading preview…")
 
 	def _on_preview_protected(self, path: str):
 		"""A sensitivity-labelled / encrypted file can't be rendered for preview."""
@@ -1650,15 +1632,17 @@ class WatermarkLabX(QMainWindow):
 		self.btn_apply.setIconSize(QSize(20, 20))
 		self.btn_apply.setMinimumHeight(48)
 		self.btn_apply.setCursor(Qt.PointingHandCursor)
+		self.btn_apply.setStyleSheet("text-align: left; padding-left: 12px; font-weight: normal;")
 		self.btn_apply.setToolTip("Watermark the selected file and save a copy")
 		self.btn_apply.clicked.connect(self._on_apply_clicked)
 		av.addWidget(self.btn_apply)
 
 		self.btn_export = QPushButton("  Export PDF Only")
-		self.btn_export.setIcon(glyph_icon(ICON_EXPORT, 16, FG_SOFT))
-		self.btn_export.setIconSize(QSize(18, 18))
+		self.btn_export.setIcon(glyph_icon(ICON_EXPORT, 18, FG_SOFT))
+		self.btn_export.setIconSize(QSize(20, 20))
 		self.btn_export.setMinimumHeight(44)
 		self.btn_export.setCursor(Qt.PointingHandCursor)
+		self.btn_export.setStyleSheet("text-align: left; padding-left: 12px; font-weight: normal;")
 		self.btn_export.setToolTip("Watermark and export only a PDF — the watermarked "
 								   "PowerPoint / Word file is not kept")
 		self.btn_export.clicked.connect(self._on_export_clicked)
@@ -1688,9 +1672,20 @@ class WatermarkLabX(QMainWindow):
 		badge.setFixedSize(36, 36)
 		bl = QVBoxLayout(badge)
 		bl.setContentsMargins(0, 0, 0, 0)
-		check = make_icon_label(ICON_CHECK, 16, SUCCESS)
-		check.setAlignment(Qt.AlignCenter)
-		bl.addWidget(check)
+		# The badge shows one of three states, swapped by _set_status_state:
+		#   • idle/success → green check (unchanged)
+		#   • working      → animated gold spinner
+		#   • failed       → red cross
+		self.status_badge = badge
+		self.status_check = make_icon_label(ICON_CHECK, 16, SUCCESS)
+		self.status_check.setAlignment(Qt.AlignCenter)
+		self.status_cross = CrossIcon(18)
+		self.status_cross.hide()
+		self.status_spinner = SpinnerWidget(16)
+		self.status_spinner.hide()
+		bl.addWidget(self.status_check, 0, Qt.AlignCenter)
+		bl.addWidget(self.status_cross, 0, Qt.AlignCenter)
+		bl.addWidget(self.status_spinner, 0, Qt.AlignCenter)
 		ready_row.addWidget(badge)
 
 		ready_col = QVBoxLayout()
@@ -1784,10 +1779,10 @@ class WatermarkLabX(QMainWindow):
 		if accent:
 			btn.setProperty("accent", True)
 		color = ACCENT_FG if accent else FG_SOFT
-		btn.setIcon(glyph_icon(glyph, 16, color))
-		btn.setIconSize(QSize(18, 18))
+		btn.setIcon(glyph_icon(glyph, 18, color))
+		btn.setIconSize(QSize(20, 20))
 		btn.setMinimumHeight(38)
-		btn.setStyleSheet("text-align: left; padding-left: 12px;")
+		btn.setStyleSheet("text-align: left; padding-left: 12px; font-weight: normal;")
 		return btn
 
 	def _pick_file(self):
@@ -2168,6 +2163,7 @@ class WatermarkLabX(QMainWindow):
 		self._proc_thread.started.connect(self._proc_worker.run)
 		self._proc_worker.progress.connect(self._on_proc_progress)
 		self._proc_worker.encode.connect(self._on_proc_encode)
+		self._proc_worker.pageProgress.connect(self._on_proc_pages)
 		self._proc_worker.fileDone.connect(self._on_proc_file_done)
 		self._proc_worker.needFfmpeg.connect(self._on_need_ffmpeg)
 		self._proc_worker.finished.connect(self._on_proc_finished)
@@ -2187,6 +2183,10 @@ class WatermarkLabX(QMainWindow):
 
 	def _on_proc_encode(self, seconds: float):
 		self.status_lbl.setText(f"Encoding… {seconds:0.1f}s processed")
+
+	def _on_proc_pages(self, done: int, total: int):
+		self._set_status_state("Working…", f"Watermarking page {done} / {total}…")
+		self.status_lbl.setText(f"Watermarking page {done} / {total}…")
 
 	def _on_proc_file_done(self, out_path: str):
 		self._last_output_path = out_path
@@ -2364,6 +2364,30 @@ class WatermarkLabX(QMainWindow):
 		if hasattr(self, "status_title"):
 			self.status_title.setText(title)
 			self.status_sub.setText(subtitle)
+		self._set_status_badge(title)
+
+	def _set_status_badge(self, title: str):
+		"""Swap the status badge icon to match the current state.
+
+		Working → animated gold spinner; Failed → red cross; anything else
+		(Ready / Success / Completed) → the green check.
+		"""
+		if not hasattr(self, "status_badge"):
+			return
+		working = title.startswith("Working")
+		failed = title.startswith("Failed")
+		self.status_spinner.setVisible(working)
+		self.status_cross.setVisible(failed)
+		self.status_check.setVisible(not working and not failed)
+		if working:
+			self.status_spinner.start()
+		else:
+			self.status_spinner.stop()
+		# Tint the badge red on failure, green otherwise. A dynamic property +
+		# style re-polish is how Qt applies the #StatusBadge[state="fail"] rule.
+		self.status_badge.setProperty("state", "fail" if failed else "ok")
+		self.status_badge.style().unpolish(self.status_badge)
+		self.status_badge.style().polish(self.status_badge)
 
 	def _pulse_status_sub(self, text: str):
 		if hasattr(self, "status_sub"):

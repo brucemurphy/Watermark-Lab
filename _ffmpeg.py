@@ -120,7 +120,7 @@ def download_ffmpeg(
 			f"GyanD/codexffmpeg release ({release.get('tag_name', '?')}).\n"
 			"Please check https://github.com/GyanD/codexffmpeg/releases and "
 			"download ffmpeg.exe manually into:\n"
-			f"  {_cache_dir()}"
+			f"  {_app_dir()}"
 		)
 
 	# --- 2. Stream-download ---

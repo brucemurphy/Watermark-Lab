@@ -29,7 +29,9 @@ from pypdf.generic import (
 PDF_EXTS = {".pdf"}
 
 # Render resolution for the overlay (DPI relative to the PDF page points).
-_OVERLAY_DPI = 150.0
+# 110 DPI keeps the tiled text crisp on screen and in print while making the
+# rasterised overlay (and its BICUBIC rotate) a fraction of the 150-DPI cost.
+_OVERLAY_DPI = 110.0
 
 # Baseline: PowerPoint uses Segoe UI 18pt on a ~960pt-wide slide. Scale the
 # font to the page width so tiling density looks the same across page sizes.
@@ -88,11 +90,19 @@ def _make_overlay_rgba(w_px: int, h_px: int, text: str, color_rgb: int,
 	step_x = tw + gap_x
 	step_y = th + gap_y
 
+	# draw.text() is by far the costliest call here, so render the text once
+	# into a single step-sized tile and blit that tile across the canvas
+	# instead of re-rendering the glyphs thousands of times. The tiles are
+	# spaced (step > text size) so they never overlap, which makes a plain
+	# paste a pixel-for-pixel match for the original per-tile draw loop.
+	tile = Image.new("RGBA", (step_x, step_y), (0, 0, 0, 0))
+	ImageDraw.Draw(tile).text((0, 0), text, font=font, fill=fill)
+
 	row = 0
 	for y in range(0, canvas, step_y):
 		offset = (step_x // 2) if (row % 2) else 0
 		for x in range(-step_x, canvas, step_x):
-			draw.text((x + offset, y), text, font=font, fill=fill)
+			img.paste(tile, (x + offset, y))
 		row += 1
 
 	rotated = img.rotate(30, resample=Image.BICUBIC, expand=False)
@@ -101,14 +111,12 @@ def _make_overlay_rgba(w_px: int, h_px: int, text: str, color_rgb: int,
 	return rotated.crop((cx, cy, cx + w_px, cy + h_px))
 
 
-def _overlay_page(writer: PdfWriter, page, text: str, color_rgb: int,
-				  transparency: float) -> None:
-	"""Composite the watermark over a single page, preserving its content."""
-	w_pt = float(page.mediabox.width)
-	h_pt = float(page.mediabox.height)
-	if w_pt <= 0 or h_pt <= 0:
-		return
-
+def _build_overlay_xobject(writer: PdfWriter, w_pt: float, h_pt: float,
+						   text: str, color_rgb: int, transparency: float):
+	"""Render the watermark for a given page size and add it to the writer as a
+	masked image XObject. Returns the XObject reference, which can be shared by
+	every page of the same size (the expensive raster work happens here, once).
+	"""
 	w_px = max(1, int(round(w_pt / 72.0 * _OVERLAY_DPI)))
 	h_px = max(1, int(round(h_pt / 72.0 * _OVERLAY_DPI)))
 
@@ -143,8 +151,14 @@ def _overlay_page(writer: PdfWriter, page, text: str, color_rgb: int,
 	image[NameObject("/ColorSpace")] = NameObject("/DeviceRGB")
 	image[NameObject("/Filter")] = NameObject("/FlateDecode")
 	image[NameObject("/SMask")] = smask_ref
-	image_ref = writer._add_object(image)
+	return writer._add_object(image)
 
+
+def _overlay_page(writer: PdfWriter, page, image_ref, w_pt: float,
+				  h_pt: float) -> None:
+	"""Paint a pre-built watermark XObject over a single page, preserving its
+	content. Cheap: it only registers the shared image and appends a tiny
+	content stream, so it can run for every page without re-rendering."""
 	# Register the image in the page's resources under a unique name.
 	resources = page[NameObject("/Resources")]
 	if "/XObject" not in resources:
@@ -171,13 +185,15 @@ def _overlay_page(writer: PdfWriter, page, text: str, color_rgb: int,
 
 
 def add_pdf_watermark(pdf_path, watermark_text, color_rgb=0xA6A6A6,
-					  transparency=0.70, export_pdf=False):
+					  transparency=0.70, export_pdf=False, progress_cb=None):
 	"""Watermark every page of a PDF with a tiled diagonal text overlay.
 
 	color_rgb: integer RGB in 0xRRGGBB form.
 	transparency: float 0.0 (opaque) to 1.0 (fully transparent).
 	export_pdf: ignored — the source already is a PDF (kept for signature
 		parity with the other engines so the GUI can call them uniformly).
+	progress_cb: optional callable(pages_done, total_pages) for UI updates so a
+		long multi-page document doesn't look frozen.
 
 	Returns the output path: <name>_watermarked.pdf in the source folder.
 	"""
@@ -206,8 +222,28 @@ def add_pdf_watermark(pdf_path, watermark_text, color_rgb=0xA6A6A6,
 	writer = PdfWriter()
 	writer.append(reader)
 
-	for page in writer.pages:
-		_overlay_page(writer, page, watermark_text, color_rgb, transparency)
+	# Rendering the overlay is the expensive part, so build it once per unique
+	# page size and reuse the XObject for every page that shares that size —
+	# uniform documents (the common case) only pay the raster cost a single
+	# time. Keyed by rounded points so near-identical sizes collapse together.
+	overlay_cache: dict = {}
+	total = len(writer.pages)
+	for done, page in enumerate(writer.pages, 1):
+		w_pt = float(page.mediabox.width)
+		h_pt = float(page.mediabox.height)
+		if w_pt > 0 and h_pt > 0:
+			key = (round(w_pt, 1), round(h_pt, 1))
+			image_ref = overlay_cache.get(key)
+			if image_ref is None:
+				image_ref = _build_overlay_xobject(
+					writer, w_pt, h_pt, watermark_text, color_rgb, transparency)
+				overlay_cache[key] = image_ref
+			_overlay_page(writer, page, image_ref, w_pt, h_pt)
+		if progress_cb is not None:
+			try:
+				progress_cb(done, total)
+			except Exception:  # noqa: BLE001
+				pass  # progress reporting must never break the job
 
 	# OneDrive-safe: write to a local temp file, then copy to the destination.
 	work_dir = tempfile.mkdtemp(prefix="wlx_pdf_")

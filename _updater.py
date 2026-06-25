@@ -28,7 +28,6 @@ import tempfile
 import threading
 import urllib.request
 import zipfile
-from typing import Callable, Optional
 
 from packaging.version import Version
 

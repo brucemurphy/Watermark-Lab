@@ -21,7 +21,6 @@ discards stale results so only the latest request is shown.
 """
 from __future__ import annotations
 
-import io
 import math
 import os
 import shutil
@@ -164,7 +163,7 @@ def rasterize_pdf_page(pdf_path: str, page: int = 0, target_w: int = _TARGET_W) 
 	the render onto opaque white so pages always look like paper.
 	"""
 	doc = QPdfDocument()
-	status = doc.load(pdf_path)
+	doc.load(pdf_path)
 	try:
 		# QPdfDocument.load returns an Error enum (None == success on some builds)
 		if doc.status() != QPdfDocument.Status.Ready:

@@ -215,21 +215,24 @@ def _purge_gen_py():
 
 
 def _ensure_powerpoint():
-    """EnsureDispatch with self-healing for stale gen_py caches.
+    """EnsureDispatch with self-healing for stale/broken gen_py caches.
 
     When Office is updated, cached early-binding modules under
     %TEMP%\\gen_py can mismatch the new type library and raise
-    AttributeError on 'MinorVersion' (or similar). Wipe the cache,
-    drop the stale modules from sys.modules, and retry.
+    AttributeError on 'MinorVersion' (or similar). A wiped or partially
+    written cache instead raises ImportError / ModuleNotFoundError
+    ("No module named 'win32com.gen_py'"). Either way: wipe the cache,
+    drop the stale modules from sys.modules, and retry — finally falling
+    back to late binding so a single file never fails on a cache glitch.
     """
     try:
         return gencache.EnsureDispatch("PowerPoint.Application")
-    except AttributeError:
+    except (AttributeError, ImportError):
         pass
     _purge_gen_py()
     try:
         return gencache.EnsureDispatch("PowerPoint.Application")
-    except AttributeError:
+    except Exception:
         # Final fallback: skip early binding entirely. Loses a few
         # advanced attributes but is enough for the watermark flow.
         return win32com.client.Dispatch("PowerPoint.Application")

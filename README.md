@@ -1,233 +1,112 @@
 # Watermark Lab
 
-> **Version 2.1.0** — PySide6/Qt rewrite with true-render live preview  
-> A lightweight Windows desktop tool for applying professional, tiled, diagonal watermarks to PowerPoint, Word, PDF and video files.
+> Add a clean, professional watermark to your PowerPoint, Word, PDF and video files — in seconds.
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="Watermark Lab — main window showing the watermark text, live preview, colour and transparency controls" width="900">
+  <img src="docs/screenshot.png" alt="Watermark Lab main window" width="900">
 </p>
 
 ---
 
-## Overview
+## What's new in 2.1.0
 
-Watermark Lab lets you stamp any PowerPoint, Word or video file with a customisable diagonal text watermark in seconds. It runs entirely on your Windows machine — no cloud, no subscription, no data leaves your device.
+- **A fresh, clearer interface** — you can always see what's happening: a job in progress, a green tick when it's done, or a friendly note if something needs a look.
+- **A smoother preview** — sharper results, a quick heads-up while Word and PowerPoint previews are prepared, and zoom from 10% up to 800%.
+- **Watermark PDFs too** — stamp every page of a PDF in the same style, with your original content showing through.
 
-- PowerPoint and Word files are watermarked natively — the result is a real, editable document, not a flattened image.
-- A **true-render live preview** shows the genuine watermarked output as you type and adjust settings.
-- Video files are processed with ffmpeg, which the app downloads automatically on first use.
-- The app ships as a self-contained portable folder — unzip and run, no installer needed.
+---
 
-> **New in 2.0.0:** the interface is a full **PySide6/Qt** rewrite — a three-pane layout with drag-and-drop, an editable transparency value, a colour palette + eyedropper, and a faithful live preview.
->
-> **Since 2.0.1:** browse dialogs reopen at your last folder, the window comes to the front on launch, a new **Export PDF Only** button leaves just the PDF behind, and the app checks for updates on launch.
+## What it does
+
+Watermark Lab stamps text like **CONFIDENTIAL** diagonally across your documents and videos. Pick your words, choose a colour, set how see-through it should be, and you're done.
+
+- Works with **PowerPoint, Word, PDF and video** files.
+- Your documents stay **fully editable** — the watermark is added properly, not baked into a picture.
+- Everything happens **on your own PC**. Nothing is uploaded — no account, no subscription.
+- **See it before you save it** — a live preview shows exactly how the result will look as you type.
+- **Nothing to install** — unzip the folder and double-click. Run it from your Desktop, a USB stick, anywhere.
 
 ---
 
 ## Features
 
-| Feature | Detail |
-|---|---|
-| **True-render live preview** | A faithful, pixel-accurate preview of the actual watermarked output — rendered via Qt's PDF engine — updates as you edit text, colour and transparency. |
-| **PowerPoint watermarking** | `.pptx` / `.ppt` — tiled diagonal text shape added to every slide. Fully editable output. OneDrive-safe saving. |
-| **Word watermarking** | `.docx` / `.doc` — native diagonal watermark via Word's own VML format. Snug, auto-wrapped text. |
-| **PDF watermarking** | `.pdf` — the same tiled diagonal style stamped on every page; original page content is preserved under the semi-transparent text. |
-| **Video watermarking** | `.mp4` `.mov` `.m4v` `.mkv` `.avi` `.webm` — PNG overlay composited via ffmpeg. Audio stream-copied, no quality loss. |
-| **Drag & drop** | Drop a file straight onto the app, or browse for a file or a whole folder. |
-| **Custom watermark text** | Any text — default is `CONFIDENTIAL`. Wraps automatically; up to 100 characters. |
-| **Colour picker** | Palette swatches, an editable hex value, and an eyedropper for any custom colour. |
-| **Transparency** | Slider plus an **editable value** — type an exact 0–100 percentage. |
-| **Remembered browse folder** | File / folder dialogs reopen at your last-used folder (Documents by default). |
-| **Export PDF Only** | One-click export of just the PDF — the intermediate watermarked Office file is cleaned up for you. |
-| **Batch processing** | Pick a folder and watermark every supported file in one click. |
-| **Presets** | Save and recall named configurations (text + colour + transparency). |
-| **Recent files** | Quick access to recently used files and presets. |
-| **PDF export** | Optionally export a PDF alongside the watermarked PowerPoint / Word file. |
-| **Open file after save** | Toggle to auto-open the output file(s) when done. |
-| **Dark theme** | Full dark Qt UI throughout — custom title bar, controls, status panel. |
-| **Auto-updater** | Checks GitHub Releases on launch; one-click install of new versions. |
-| **ffmpeg auto-download** | Downloads ffmpeg automatically on first video use (~30 MB). No manual setup. |
-| **Portable** | Runs from any user-writable folder — Desktop, USB stick, network share. |
+- **Any text you like** — defaults to `CONFIDENTIAL`, up to 100 characters, and wraps automatically.
+- **Your colour, your look** — choose from a palette, enter an exact colour, or pick one off your screen with the eyedropper.
+- **Adjustable transparency** — slide it or type an exact amount, so the watermark never hides your content.
+- **Live preview** — watch the real watermarked result update as you make changes.
+- **Drag & drop** — drop a file straight onto the app, or browse for a single file or a whole folder.
+- **Batch a folder** — watermark every supported file in one click.
+- **Save your favourites** — store named presets (text + colour + transparency) and reuse them instantly.
+- **Export to PDF** — optionally save a PDF alongside your watermarked PowerPoint or Word file, or just the PDF on its own.
+- **Open when done** — the finished file can open automatically.
+- **Clear status** — the app shows you when it's working, when it's finished, and tells you plainly if anything goes wrong.
 
 ---
 
-## Requirements
+## What you'll need
 
-- **Windows 10 or 11** (64-bit)
-- **Microsoft PowerPoint** — required for `.pptx` / `.ppt` watermarking (uses COM automation). Not needed for Word or video.
-- **Microsoft Word** — required for `.docx` / `.doc` PDF export. Not needed for the watermark itself.
-- No Python install required when running the pre-built `.exe` from a release.
-
-### Running from source
-
-```powershell
-pip install PySide6 pywin32 Pillow packaging python-docx pypdf
-python Watermark_Lab.pyw
-```
-
-Python 3.10 or later required. The live preview uses **PySide6** (Qt for Python), including its bundled `QtPdf` module.
+- A **Windows 10 or 11** PC.
+- **Microsoft PowerPoint** — needed to watermark PowerPoint files.
+- **Microsoft Word** — needed only for older `.doc` files and for exporting Word to PDF. Modern `.docx` files are watermarked without it.
+- Not needed at all for **PDF or video** files.
+- That's it — there's nothing else to install.
 
 ---
 
-## Getting Started
+## Getting started
 
-### Option A — Pre-built release (recommended)
+1. Download **`WatermarkLab.zip`** from the [latest release](https://github.com/brucemurphy/Watermark-Lab/releases/latest).
+2. Extract it anywhere — your Desktop, a USB stick, wherever suits.
+3. Double-click **`WatermarkLab.exe`**.
 
-1. Download `WatermarkLab.zip` from the [latest release](https://github.com/brucemurphy/Watermark-Lab/releases/latest).
-2. Extract the zip to any folder (Desktop, USB stick, etc.).
-3. Double-click `WatermarkLab.exe`.
-
-No installer, no admin rights needed.
-
-### Option B — Run from source
-
-```powershell
-git clone https://github.com/brucemurphy/Watermark-Lab.git
-cd Watermark-Lab
-pip install PySide6 pywin32 Pillow packaging python-docx pypdf
-python Watermark_Lab.pyw
-```
+No installer. No admin rights. No setup.
 
 ---
 
-## Usage
+## How to use it
 
-1. **Drag a file onto the app**, or click **Browse File…** / **Browse Folder…** to select a `.pptx`, `.ppt`, `.docx`, `.doc`, or video file.
-2. Enter your **watermark text** (default: `CONFIDENTIAL`).
-3. Pick a **colour** (palette, hex, or eyedropper) and set **transparency** — drag the slider or type an exact value in the editable pill.
-4. Watch the **live preview** update to show the real watermarked result.
-5. Toggle **Export PDF** (PowerPoint / Word) and **Open file(s) after processing** as needed.
-6. Click **Apply Watermark**.
+1. **Add your file** — drag it onto the app, or click **Browse File…** (or **Browse Folder…** to do a whole batch). Works with PowerPoint, Word, PDF and video.
+2. **Type your watermark text** — `CONFIDENTIAL` by default, but make it anything you want.
+3. **Choose a colour and transparency** — use the palette, eyedropper, or type exact values.
+4. **Check the preview** — it shows the real result. (For Word and PowerPoint, it takes a moment to render a sharp preview — the app lets you know.)
+5. **Click Apply Watermark.** The status panel shows the job running, then a green tick when it's done — or a clear message if something needs your attention.
 
-The output file is saved next to the source with a `_watermarked` suffix:
+Your watermarked copy is saved right next to the original, with `_watermarked` added to the name — your original file is never changed:
 
 ```
 my_presentation.pptx  →  my_presentation_watermarked.pptx
 recording.mp4         →  recording_watermarked.mp4
 ```
 
-When complete, the 📂 icon appears in the status bar — click it to open the output folder in Explorer.
+When it's finished, click the folder icon in the status bar to jump straight to your new file.
 
 ---
 
-## FFmpeg
+## Watermarking videos
 
-Video watermarking requires ffmpeg. **No manual setup is needed.**
-
-On first video use the app prompts you to download ffmpeg automatically. It fetches the latest minimal essentials build from [GyanD/codexffmpeg](https://github.com/GyanD/codexffmpeg) (~30 MB) and saves it alongside the app:
-
-```
-WatermarkLab\ffmpeg.exe
-```
-
-ffmpeg is cached — subsequent launches find it instantly with no network call. Copy the whole `WatermarkLab` folder to another machine and ffmpeg comes with it.
-
-> **FFmpeg copyright notice**  
-> FFmpeg is © the FFmpeg developers and other contributors.  
-> Licensed under the [GNU Lesser General Public License (LGPL) v2.1+](https://ffmpeg.org/legal.html) or the GNU GPL v2+ depending on the build configuration.  
-> Watermark Lab does **not** redistribute FFmpeg binaries. FFmpeg is downloaded separately by the user at runtime.  
-> Source code: https://ffmpeg.org/
+The first time you watermark a video, the app downloads a small video tool (about 30 MB) automatically — just click **Yes** when asked. After that it's instant, and it travels with the app if you copy the folder elsewhere.
 
 ---
 
-## Auto-Update
+## Staying up to date
 
-Three seconds after launch the app silently checks the GitHub Releases API for a newer version. If one is found you'll see a prompt:
-
-> **Watermark Lab x.y.z is available.**  
-> What's new: …  
-> Install now and restart?
-
-On **Yes**:
-1. The new `WatermarkLab.zip` is downloaded from GitHub's CDN.
-2. The updated files are copied over the existing app folder via a background PowerShell script.
-3. The updated app launches automatically.
-
-Update checks are a no-op when running from Python source (`python Watermark_Lab.pyw`).
+Watermark Lab checks for new versions when it starts. If there's an update, it asks if you'd like to install it — click **Yes** and it updates itself and restarts. Your presets and recent files are always kept.
 
 ---
 
-## Upgrading from 1.4.x
+## A note on privacy
 
-The upgrade path is automatic — **no reinstall required**.
-
-- **Pre-built app users:** launch your existing 1.4.x app. A few seconds after start it checks GitHub Releases, sees that **2.0.0 > 1.4.x**, and prompts you to install. Click **Yes** and the new Qt app downloads, replaces the old folder, and relaunches. Your presets and recent files are preserved.
-- **Running from source:** pull the latest and install the one new dependency:
-
-  ```powershell
-  git pull
-  pip install PySide6
-  python Watermark_Lab.pyw
-  ```
-
----
-
-## Project Layout
-
-| File | Purpose |
-|---|---|
-| `Watermark_Lab.pyw` | Main GUI entry point (PySide6/Qt) |
-| `_xpreview.py` | True-render live preview engine (Qt `QtPdf` + ffmpeg) |
-| `_xpowerpoint.py` | OneDrive-safe PowerPoint save wrapper |
-| `_xword.py` | Snug, auto-wrapped Word watermark |
-| `_powerpoint.py` | PowerPoint COM watermarking engine (shared) |
-| `_word.py` | Word VML watermarking engine (shared) |
-| `_pdf.py` | PDF watermarking via Pillow + pypdf (shared) |
-| `_video.py` | Video watermarking via ffmpeg + Pillow (shared) |
-| `_ffmpeg.py` | ffmpeg auto-download and path resolution |
-| `_updater.py` | GitHub Releases auto-update logic |
-| `_version.py` | Version constant — stamped by CI at build time |
-| `version.json` | Release metadata and in-app update notes |
-| `WatermarkLab.spec` | PyInstaller build spec |
-| `SplashLab.png` | Splash screen image |
-| `Watermark.ico` / `Watermark.png` | App icon |
-| `.github/workflows/release.yml` | CI: build, zip, publish GitHub Release on tag push |
-
----
-
-## Building from Source
-
-The release workflow builds automatically via GitHub Actions on every version tag push. To build locally:
-
-```powershell
-pip install pyinstaller PySide6 pywin32 Pillow packaging python-docx pypdf
-pyinstaller WatermarkLab.spec
-```
-
-Output is in `dist\WatermarkLab\`. Zip it for distribution:
-
-```powershell
-Compress-Archive -Path dist\WatermarkLab -DestinationPath WatermarkLab.zip
-```
-
-> **Why a folder (onedir) and not a single exe (onefile)?**  
-> Onefile mode extracts to `%TEMP%` at every launch. This causes crashes on OneDrive-synced folders (sync engine locks the files) and is blocked by WDAC/App Control policies on managed Windows machines. Onedir has no runtime extraction — all files are in place from the start.
-
----
-
-## Third-Party Notices
-
-This repository does **not** redistribute any third-party binaries.
-
-| Component | License | Notes |
-|---|---|---|
-| **FFmpeg** | LGPL v2.1+ / GPL v2+ | Downloaded at runtime by the user. © FFmpeg developers. https://ffmpeg.org |
-| **PySide6 (Qt for Python)** | LGPL v3 / GPL | Qt UI and `QtPdf` preview rendering. © The Qt Company. https://www.qt.io |
-| **Pillow** | HPND / MIT-CMU | Used for watermark image generation. https://python-pillow.org |
-| **pywin32** | PSF License | Used for PowerPoint / Word COM automation. https://github.com/mhammond/pywin32 |
-| **python-docx** | MIT | Used for Word VML watermark injection. https://github.com/python-openxml/python-docx |
-| **pypdf** | BSD | Used to composite watermarks onto existing PDFs. https://github.com/py-pdf/pypdf |
-| **packaging** | Apache 2.0 / BSD | Used for version comparison. https://github.com/pypa/packaging |
+Watermark Lab runs entirely on your computer. Your files are never uploaded anywhere, and the app works completely offline (apart from the one-time video-tool download and checking for updates).
 
 ---
 
 ## License
 
-Copyright © 2026 Bruce Murphy.  
+Copyright © 2026 Bruce Murphy.
 Released under the [MIT License](LICENSE).
 
 ---
 
-## Release History
+## For developers
 
-See [Releases](https://github.com/brucemurphy/Watermark-Lab/releases) on GitHub.
+Curious how it works under the hood, or want to build from source? See **[TECHNICAL_DETAILS.md](TECHNICAL_DETAILS.md)** for the architecture, build instructions, project layout, and third-party licences.

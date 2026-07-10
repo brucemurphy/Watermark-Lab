@@ -45,3 +45,7 @@ settings.json
 *.mkv
 *.avi
 *.webm
+
+# Local dev snapshots / backups (never pushed to GitHub)
+v01 dev/
+v02 dev/

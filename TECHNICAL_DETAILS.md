@@ -2,7 +2,7 @@
 
 > Engineering reference for Watermark Lab. For the user-facing guide, see [README.md](README.md).
 
-**Current version:** 2.1.0
+**Current version:** 2.2.0
 **Platform:** Windows 10 / 11 (64-bit)
 **Language / UI:** Python 3.10+ with PySide6 (Qt for Python)
 
@@ -32,6 +32,8 @@ Design principles:
 
 The default watermark style is Segoe UI, gray (`#A6A6A6`), 70% transparency, tiled at −30°.
 
+> **PDF export size.** PowerPoint and Word export their watermarked PDF via `ExportAsFixedFormat` with **screen intent** (`ppFixedFormatIntentScreen = 1` / Word `OptimizeFor = OnScreen`), which downsamples images for a much smaller file than `SaveAs(FileFormat=PDF)`. It passes the full positional arg list (a short 3-arg call throws a COM marshalling error on some pywin32 builds) and falls back to `SaveAs`/`SaveAs2` on failure.
+
 ---
 
 ## Live preview
@@ -40,10 +42,24 @@ The default watermark style is Segoe UI, gray (`#A6A6A6`), 70% transparency, til
 
 - **Background load (COM-light).** `.pptx` uses the embedded thumbnail (no COM); `.doc/.docx` and legacy `.ppt` make one short Office export trip; PDF rasterises its first page directly via Qt `QtPdf`; video pulls the first frame via ffmpeg.
 - **Live composite.** Once a clean backdrop is cached, watermark text/colour/transparency changes are composited in the UI thread instantly — no backend, no COM.
+- **Video playback.** Beyond the first-frame still, the preview can loop a short muted segment: a `QThreadPool` task decodes a few seconds of raw RGB frames via the on-demand ffmpeg (`-f rawvideo`, audio dropped), and a `QTimer` cycles them in the UI thread while the live watermark is composited onto each frame with `QPainter`. A centred **▶ Play preview** / **⏸ Stop** button drives it; nothing is bundled.
+- **Page navigation.** PDF and Word previews page through the whole document. Pages are rasterised lazily via `QtPdf` and kept in a small bounded cache; Word's exported PDF is *retained* (and cleaned up on file switch / close) so any page renders on demand. A bottom-centre **‹ Page N / M ›** bar drives it.
 - **Threading & cancellation.** Heavy work runs on a `QThreadPool` with a monotonic token, so stale results are discarded and turning the preview off cancels in-flight work at the next checkpoint.
 - **Protected files.** Encrypted / sensitivity-labelled (MIP) Office files are detected before launching Office and reported clearly instead of failing mid-render.
 - **Render notice.** Because Word/PowerPoint backdrops need a full high-resolution render, the preview shows a heads-up message while that first render is generated.
-- **Zoom control.** The preview canvas zooms from 10% to 800% (`_MIN_ZOOM` / `_MAX_ZOOM`). The toolbar percentage is an editable combo: the +/- buttons step at 1.25×, preset items jump to common levels, and a typed value is parsed and clamped to range. A fixed width keeps three-digit readouts (up to `800%`) from clipping.
+ A fixed width keeps three-digit readouts (up to `800%`) from clipping.
+
+---
+
+## Protected & rights-managed files
+
+Watermark Lab detects protected inputs before doing any work and responds per type:
+
+- **Office** (`.docx` / `.pptx`) — `is_protected_file` checks for an OLE2 (encrypted) container instead of the normal ZIP. A pre-flight dialog offers **Continue / Open source document / Cancel**: watermarking still works and the sensitivity label + its encryption carry through to the watermarked file and exported PDF.
+- **PDF** — `is_protected_pdf` catches both standard encryption (`pypdf` `is_encrypted`) and the Microsoft rights-managed **placeholder page** (scans page-1 text for MIP markers such as *"protected by Microsoft Office"*). Detected → notify and cancel.
+- **Video** — `is_protected_video` parses the MP4/MOV metadata boxes (`moov` / `moof`) for CENC/DRM atoms (`tenc` / `sinf` / `encv` / `pssh`), which is reliable where `ffmpeg -i` hides the encryption behind the underlying codec; an `ffmpeg -i` marker scan is a fallback for other containers. Detected → notify and cancel.
+
+Detection runs in the pre-flight (`_start_processing`), with engine-level guards in `_pdf.py` / `_video.py` as a backstop.
 
 ---
 

@@ -28,10 +28,10 @@ from _prefs import (
 from _xpowerpoint import add_watermark  # experimental: OneDrive-safe save
 from _word import WORD_EXTS
 from _xword import add_word_watermark  # experimental: snug, wrapped Word watermark
-from _video import add_video_watermark, VIDEO_EXTS
-from _pdf import add_pdf_watermark, PDF_EXTS  # watermark an existing PDF
+from _video import add_video_watermark, VIDEO_EXTS, is_protected_video
+from _pdf import add_pdf_watermark, PDF_EXTS, is_protected_pdf  # watermark an existing PDF
 from _ffmpeg import download_ffmpeg, FfmpegNotReadyError
-from _xpreview import PreviewController, PreviewCanvas, file_kind
+from _xpreview import PreviewController, PreviewCanvas, file_kind, is_protected_file
 
 PPT_EXTS = {".pptx", ".ppt"}
 ALL_SUPPORTED = PPT_EXTS | WORD_EXTS | VIDEO_EXTS | PDF_EXTS
@@ -1079,6 +1079,7 @@ class WatermarkLabX(QMainWindow):
 		self._proc_thread = None             # active processing QThread
 		self._proc_worker = None
 		self._dl_thread = None               # ffmpeg download QThread
+		self._ffmpeg_on_success = None       # retry callback after ffmpeg download
 
 		root = QFrame()
 		root.setObjectName("Root")
@@ -1564,6 +1565,13 @@ class WatermarkLabX(QMainWindow):
 		self.preview.statusChanged.connect(self._on_preview_status)
 		self.preview.busyChanged.connect(self._on_preview_busy)
 		self.preview.protectedFile.connect(self._on_preview_protected)
+		self.preview.ffmpegNeeded.connect(self._on_preview_needs_ffmpeg)
+		self.preview.playbackChanged.connect(self.preview_canvas.set_playing)
+		self.preview.videoPlayableChanged.connect(self.preview_canvas.set_play_available)
+		self.preview_canvas.playToggled.connect(self._on_toggle_video_playback)
+		self.preview.pagesChanged.connect(self.preview_canvas.set_pages)
+		self.preview_canvas.prevPage.connect(self.preview.prev_page)
+		self.preview_canvas.nextPage.connect(self.preview.next_page)
 
 	def _request_preview(self):
 		"""Push current settings to the controller and refresh the preview."""
@@ -1613,6 +1621,20 @@ class WatermarkLabX(QMainWindow):
 			"This document has a sensitivity label with encryption.\n"
 			"Watermarking still works — just turn preview off and apply.")
 		self.status_lbl.setText("Protected file — preview unavailable.")
+
+	def _on_preview_needs_ffmpeg(self, path: str):
+		"""Video preview needs ffmpeg — reuse the watermark job's download
+		prompt, then retry the preview automatically once it's available."""
+		self.preview_canvas.set_placeholder(
+			"🎬  Video preview needs ffmpeg\n\n"
+			"ffmpeg powers video frames. Download it once and\n"
+			"the preview will render automatically.")
+		self._prompt_ffmpeg_download(on_success=self._preview_current_file)
+
+	def _on_toggle_video_playback(self):
+		"""Centered Play/Stop button on the preview canvas was clicked."""
+		if hasattr(self, "preview") and self._preview_enabled:
+			self.preview.toggle_video()
 
 	def _build_right_column(self) -> QWidget:
 		col = QWidget()
@@ -2133,6 +2155,43 @@ class WatermarkLabX(QMainWindow):
 			return
 		self._start_processing(export_only=True)
 
+	def _prompt_protected_export(self, protected_files, export_pdf: bool) -> str:
+		"""Warn before watermarking sensitivity-labelled (encrypted) documents.
+
+		These can't be previewed, but watermarking still works and the label +
+		its encryption carry through to the output. Returns "continue", "cancel",
+		or "open" (open the source document instead).
+		"""
+		from PySide6.QtWidgets import QMessageBox
+		if len(protected_files) == 1:
+			head = (f"\u201c{os.path.basename(protected_files[0])}\u201d has a "
+					"sensitivity label with encryption.")
+		else:
+			head = (f"{len(protected_files)} of the selected files have a "
+					"sensitivity label with encryption.")
+		pdf_bit = " and to the exported PDF" if export_pdf else ""
+		box = QMessageBox(self)
+		box.setIcon(QMessageBox.Warning)
+		box.setWindowTitle("Sensitivity label detected")
+		box.setText(head)
+		box.setInformativeText(
+			"A preview can't be shown for protected files, but watermarking "
+			"will still work.\n\n"
+			"The sensitivity label and its encryption are preserved \u2014 the "
+			f"classification carries through to the watermarked document{pdf_bit}.\n\n"
+			"How would you like to proceed?")
+		btn_continue = box.addButton("Continue", QMessageBox.AcceptRole)
+		btn_open = box.addButton("Open source document", QMessageBox.ActionRole)
+		btn_cancel = box.addButton("Cancel", QMessageBox.RejectRole)
+		box.setDefaultButton(btn_continue)
+		box.exec()
+		clicked = box.clickedButton()
+		if clicked is btn_cancel:
+			return "cancel"
+		if clicked is btn_open:
+			return "open"
+		return "continue"
+
 	# ── Processing pipeline (threaded) ─────────────────────────────────
 	def _start_processing(self, export_only: bool):
 		if getattr(self, "_proc_thread", None) is not None:
@@ -2151,6 +2210,63 @@ class WatermarkLabX(QMainWindow):
 		cleanup_office = bool(export_only and not self._export_pdf_only)
 		text = self.wm_text.text().strip()
 		files = list(self._files)
+
+		# Protected PDFs (encrypted or Microsoft rights-managed) can't be
+		# watermarked at all — the real content is encrypted. Detect, tell the
+		# user, and cancel the operation.
+		protected_pdfs = [f for f in files
+						  if file_kind(f) == "pdf" and is_protected_pdf(f)]
+		if protected_pdfs:
+			from PySide6.QtWidgets import QMessageBox
+			if len(protected_pdfs) == 1:
+				head = (f"\u201c{os.path.basename(protected_pdfs[0])}\u201d is a "
+						"protected PDF and can't be watermarked.")
+			else:
+				head = (f"{len(protected_pdfs)} of the selected PDFs are protected "
+						"and can't be watermarked.")
+			QMessageBox.warning(
+				self, "Protected PDF",
+				head + "\n\nThis PDF is encrypted or rights-managed (protected by "
+				"Microsoft Office), so its content can't be opened for "
+				"watermarking. No changes were made.")
+			self.status_lbl.setText("Protected PDF \u2014 operation cancelled.")
+			return
+
+		# DRM/encryption-protected videos can't be decoded by ffmpeg. Detect,
+		# tell the user, and cancel (mirrors the protected-PDF handling).
+		protected_videos = [f for f in files
+							if file_kind(f) == "video" and is_protected_video(f)]
+		if protected_videos:
+			from PySide6.QtWidgets import QMessageBox
+			if len(protected_videos) == 1:
+				head = (f"\u201c{os.path.basename(protected_videos[0])}\u201d is a "
+						"protected video and can't be watermarked.")
+			else:
+				head = (f"{len(protected_videos)} of the selected videos are "
+						"protected and can't be watermarked.")
+			QMessageBox.warning(
+				self, "Protected video",
+				head + "\n\nThis video is DRM / encryption-protected, so its "
+				"content can't be decoded for watermarking. No changes were made.")
+			self.status_lbl.setText("Protected video \u2014 operation cancelled.")
+			return
+
+		# Sensitivity-labelled (encrypted) documents can't be previewed, but they
+		# CAN be watermarked — and the label + its protection carry through to the
+		# output. Warn before starting and let the user decide.
+		protected = [f for f in files if is_protected_file(f)]
+		if protected:
+			choice = self._prompt_protected_export(protected, export_pdf)
+			if choice == "cancel":
+				self.status_lbl.setText("Cancelled — no changes made.")
+				return
+			if choice == "open":
+				try:
+					os.startfile(protected[0])  # type: ignore[attr-defined]
+				except Exception:
+					pass
+				self.status_lbl.setText("Opened the source document — nothing was changed.")
+				return
 
 		self._set_processing_ui(True)
 		self._set_status_state("Working…", f"Processing 0 / {len(files)}…")
@@ -2275,16 +2391,21 @@ class WatermarkLabX(QMainWindow):
 		except Exception as exc:  # noqa: BLE001
 			self.status_lbl.setText(f"Saved to {folder}, but could not open it: {exc}")
 
-	def _prompt_ffmpeg_download(self):
+	def _prompt_ffmpeg_download(self, on_success=None):
+		# A download may already be in flight (e.g. the preview asked first);
+		# don't stack a second prompt or worker thread.
+		if getattr(self, "_dl_thread", None) is not None:
+			return
 		from PySide6.QtWidgets import QMessageBox
 		resp = QMessageBox.question(
 			self, "ffmpeg required",
-			"Video watermarking needs ffmpeg, which hasn't been downloaded yet.\n\n"
-			"Download it once (~30 MB) now?",
+			"Video watermarking and preview need ffmpeg, which hasn't been "
+			"downloaded yet.\n\nDownload it once (~30 MB) now?",
 			QMessageBox.Yes | QMessageBox.No)
 		if resp != QMessageBox.Yes:
-			self.status_lbl.setText("Video job cancelled — ffmpeg not downloaded.")
+			self.status_lbl.setText("ffmpeg not downloaded.")
 			return
+		self._ffmpeg_on_success = on_success
 		self.status_lbl.setText("Downloading ffmpeg…")
 
 		dl_thread = QThread(self)
@@ -2301,8 +2422,15 @@ class WatermarkLabX(QMainWindow):
 	def _on_ffmpeg_downloaded(self, ok, err, thread, worker):
 		thread.quit(); thread.wait()
 		self._dl_thread = None
+		on_success = self._ffmpeg_on_success
+		self._ffmpeg_on_success = None
 		if ok:
-			self.status_lbl.setText("ffmpeg ready. Re-run the video job.")
+			if on_success is not None:
+				# e.g. re-run the video preview now that ffmpeg is available.
+				self.status_lbl.setText("ffmpeg ready.")
+				on_success()
+			else:
+				self.status_lbl.setText("ffmpeg ready. Re-run the video job.")
 		else:
 			self.status_lbl.setText(f"ffmpeg download failed: {err}")
 
@@ -2444,14 +2572,21 @@ class WatermarkLabX(QMainWindow):
 		# Gracefully stop in-flight work so no signal fires into a dead window.
 		try:
 			from PySide6.QtCore import QThreadPool
+			from PySide6.QtWidgets import QApplication
 			if getattr(self, "preview", None) is not None:
 				self.preview._token += 1  # invalidate pending preview results
+				# Cancel in-flight preview work and delete any retained temp PDF
+				# (e.g. a Word page-navigation export) so nothing leaks to %TEMP%.
+				self.preview.dispose()
 			if getattr(self, "_proc_worker", None) is not None:
 				self._proc_worker.cancel()
 			if getattr(self, "_proc_thread", None) is not None:
 				self._proc_thread.quit()
 				self._proc_thread.wait(3000)
 			QThreadPool.globalInstance().waitForDone(3000)
+			# Flush any queued preview result so its stale-token cleanup runs
+			# (covers a Word export that finished in the split-second before close).
+			QApplication.processEvents()
 		except Exception:
 			pass
 		super().closeEvent(e)

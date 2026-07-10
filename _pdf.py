@@ -184,6 +184,44 @@ def _overlay_page(writer: PdfWriter, page, image_ref, w_pt: float,
 		page[NameObject("/Contents")] = ArrayObject([contents, stream_ref])
 
 
+# Text markers on the placeholder page Microsoft (MIP / RMS) inserts when a PDF
+# is rights-protected. The visible PDF is unencrypted but shows only this page;
+# the real content is encrypted inside, so such a file cannot be watermarked.
+_PROTECTED_MARKERS = (
+	"this pdf file is protected",
+	"this pdf document has been protected",
+	"protected by microsoft office",
+	"microsoft information protection",
+	"azure rights management",
+)
+
+
+def is_protected_pdf(pdf_path):
+	"""Return True if the PDF is encrypted or a Microsoft rights-protected
+	(MIP / RMS) placeholder that cannot be watermarked."""
+	try:
+		reader = PdfReader(pdf_path)
+	except Exception:
+		return False
+	# Standard PDF encryption that an empty password can't open.
+	if getattr(reader, "is_encrypted", False):
+		try:
+			if not reader.decrypt(""):
+				return True
+		except Exception:
+			return True
+	# MIP / RMS placeholder: scan the first page's text for known markers.
+	try:
+		pages = reader.pages
+		if pages:
+			text = (pages[0].extract_text() or "").lower()
+			if any(m in text for m in _PROTECTED_MARKERS):
+				return True
+	except Exception:
+		pass
+	return False
+
+
 def add_pdf_watermark(pdf_path, watermark_text, color_rgb=0xA6A6A6,
 					  transparency=0.70, export_pdf=False, progress_cb=None):
 	"""Watermark every page of a PDF with a tiled diagonal text overlay.
@@ -218,6 +256,20 @@ def add_pdf_watermark(pdf_path, watermark_text, color_rgb=0xA6A6A6,
 		except Exception:
 			raise RuntimeError(
 				"This PDF is password-protected and can't be watermarked.")
+
+	# Microsoft rights-protected (MIP/RMS) PDFs are an unencrypted placeholder
+	# page hiding encrypted content — refuse rather than stamp the placeholder.
+	try:
+		_pages = reader.pages
+		if _pages:
+			_text = (_pages[0].extract_text() or "").lower()
+			if any(m in _text for m in _PROTECTED_MARKERS):
+				raise RuntimeError(
+					"This PDF is protected (rights-managed) and can't be watermarked.")
+	except RuntimeError:
+		raise
+	except Exception:
+		pass
 
 	writer = PdfWriter()
 	writer.append(reader)

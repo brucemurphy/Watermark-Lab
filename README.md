@@ -8,11 +8,12 @@
 
 ---
 
-## What's new in 2.1.0
+## What's new in 2.2.0
 
-- **A fresh, clearer interface** — you can always see what's happening: a job in progress, a green tick when it's done, or a friendly note if something needs a look.
-- **A smoother preview** — sharper results, a quick heads-up while Word and PowerPoint previews are prepared, and zoom from 10% up to 800%.
-- **Watermark PDFs too** — stamp every page of a PDF in the same style, with your original content showing through.
+- **Play your video previews** — the preview now plays your clip on a silent loop, so you can see the watermark in motion before you save. Just hit **▶ Play preview**.
+- **Page through documents** — PDF and Word previews now let you flip through the whole document with **‹ Page N / M ›**, not just the first page.
+- **Much smaller PDFs** — exported PDFs are now screen-optimised, so they're a fraction of the size — far easier to email and share.
+- **Smart handling of protected files** — Watermark Lab now recognises files with a Microsoft sensitivity label or protection: labelled PowerPoint/Word files still watermark (and keep their label), while protected PDFs and DRM-protected videos are flagged clearly instead of producing a broken file.
 
 ---
 
@@ -33,13 +34,14 @@ Watermark Lab stamps text like **CONFIDENTIAL** diagonally across your documents
 - **Any text you like** — defaults to `CONFIDENTIAL`, up to 100 characters, and wraps automatically.
 - **Your colour, your look** — choose from a palette, enter an exact colour, or pick one off your screen with the eyedropper.
 - **Adjustable transparency** — slide it or type an exact amount, so the watermark never hides your content.
-- **Live preview** — watch the real watermarked result update as you make changes.
+- **Live preview** — watch the real watermarked result update as you make changes, play video previews on a loop, and page through PDFs and Word documents.
 - **Drag & drop** — drop a file straight onto the app, or browse for a single file or a whole folder.
 - **Batch a folder** — watermark every supported file in one click.
 - **Save your favourites** — store named presets (text + colour + transparency) and reuse them instantly.
-- **Export to PDF** — optionally save a PDF alongside your watermarked PowerPoint or Word file, or just the PDF on its own.
+- **Export to PDF** — optionally save a PDF alongside your watermarked PowerPoint or Word file, or just the PDF on its own — now screen-optimised for a much smaller file.
 - **Open when done** — the finished file can open automatically.
 - **Clear status** — the app shows you when it's working, when it's finished, and tells you plainly if anything goes wrong.
+- **Respects protected files** — labelled PowerPoint/Word files are watermarked with their sensitivity label preserved; protected PDFs and DRM-protected videos are detected and skipped with a clear message.
 
 ---
 

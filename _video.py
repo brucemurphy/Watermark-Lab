@@ -49,6 +49,7 @@ def _probe_video(ffmpeg: str, video_path: str):
     """
     result = subprocess.run(
         [ffmpeg, "-hide_banner", "-i", video_path],
+        stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         creationflags=_NO_WINDOW,
@@ -63,6 +64,94 @@ def _probe_video(ffmpeg: str, video_path: str):
 
     has_audio = "Audio:" in info
     return width, height, has_audio
+
+
+# CENC / DRM box atoms in an encrypted MP4's metadata (moov/moof). 'ffmpeg -i'
+# HIDES these (it reports the underlying avc1/mp4a via the sinf/frma box), so we
+# parse the container metadata directly instead of scanning ffmpeg's output.
+_ENC_ATOMS = (b"encv", b"enca", b"tenc", b"sinf", b"schm", b"pssh")
+# 'ffmpeg -i' stderr markers (fallback for non-MP4 containers we don't parse).
+_ENC_MARKERS = ("(encv", "(enca", "pssh")
+
+
+def _iter_top_boxes(fh, size):
+    """Yield (type, content_start, box_end) for each top-level ISO-BMFF box."""
+    pos = 0
+    while pos + 8 <= size:
+        fh.seek(pos)
+        hdr = fh.read(8)
+        if len(hdr) < 8:
+            break
+        box_size = int.from_bytes(hdr[0:4], "big")
+        btype = hdr[4:8]
+        content_start = pos + 8
+        if box_size == 1:                     # 64-bit extended size
+            ext = fh.read(8)
+            if len(ext) < 8:
+                break
+            box_size = int.from_bytes(ext, "big")
+            content_start = pos + 16
+        elif box_size == 0:                   # runs to EOF
+            box_size = size - pos
+        if box_size < 8:
+            break
+        yield btype, content_start, pos + box_size
+        pos += box_size
+
+
+def _mp4_is_encrypted(path) -> bool:
+    """Detect CENC/DRM by scanning only the MP4 metadata boxes (moov/moof).
+
+    Scanning the whole file for atom names would risk false positives from mdat
+    media bytes, so we walk the top-level boxes and only inspect the metadata.
+    """
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            for btype, cstart, cend in _iter_top_boxes(fh, size):
+                if btype == b"pssh":
+                    return True
+                if btype in (b"moov", b"moof"):
+                    fh.seek(cstart)
+                    content = fh.read(min(cend - cstart, 8_000_000))
+                    if any(a in content for a in _ENC_ATOMS):
+                        return True
+    except Exception:
+        return False
+    return False
+
+
+def _looks_encrypted(ffmpeg_info: str) -> bool:
+    info = (ffmpeg_info or "").lower()
+    return any(m in info for m in _ENC_MARKERS)
+
+
+def is_protected_video(path: str) -> bool:
+    """Return True if the video is DRM/CENC-encrypted (ffmpeg can't decode it).
+
+    Parses the MP4/MOV metadata for encryption boxes first (reliable, and works
+    even before ffmpeg is downloaded); falls back to an 'ffmpeg -i' marker scan
+    for other containers.
+    """
+    if os.path.splitext(path)[1].lower() in (".mp4", ".m4v", ".mov"):
+        if _mp4_is_encrypted(path):
+            return True
+    try:
+        ffmpeg = _resolve_ffmpeg()
+    except Exception:
+        return False
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-hide_banner", "-i", path],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            creationflags=_NO_WINDOW,
+            timeout=20,
+        )
+    except Exception:
+        return False
+    return _looks_encrypted(result.stderr.decode("utf-8", errors="replace"))
 
 
 def _find_font(font_size: int) -> ImageFont.ImageFont:
@@ -144,6 +233,12 @@ def add_video_watermark(
 
     ffmpeg = _resolve_ffmpeg()
 
+    # DRM/CENC-encrypted videos can't be decoded, so refuse rather than fail
+    # mid-encode with a cryptic ffmpeg error.
+    if is_protected_video(video_path):
+        raise RuntimeError(
+            "This video is DRM/encryption-protected and can't be watermarked.")
+
     base, ext = os.path.splitext(video_path)
     if not ext:
         ext = ".mp4"
@@ -181,6 +276,7 @@ def add_video_watermark(
 
         proc = subprocess.Popen(
             cmd,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             creationflags=_NO_WINDOW,

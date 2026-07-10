@@ -12,6 +12,10 @@ PP_SAVE_AS_PDF = 32
 MSO_TEXT_ORIENTATION_HORIZONTAL = 1
 PP_ALIGN_CENTER = 2
 PP_AUTO_SIZE_NONE = 0
+# ExportAsFixedFormat: Screen intent downsamples images, yielding a smaller PDF
+# than SaveAs(FileFormat=PDF). (PpFixedFormatIntent: Screen=1.)
+PP_FIXED_FORMAT_TYPE_PDF = 2
+PP_FIXED_FORMAT_INTENT_SCREEN = 1  # view on screen (downsampled, smaller)
 
 
 def add_watermark(ppt_path, watermark_text, color_rgb=0xA6A6A6, transparency=0.70,
@@ -21,7 +25,7 @@ def add_watermark(ppt_path, watermark_text, color_rgb=0xA6A6A6, transparency=0.7
     color_rgb: integer RGB in 0xRRGGBB form (note: PowerPoint COM uses BGR ordering).
     transparency: float 0.0 (opaque) to 1.0 (fully transparent).
     export_pdf: if True, also export the watermarked presentation as a PDF with
-        the same base name.
+        the same base name (screen-optimised for a compact file).
     """
     # PowerPoint requires an absolute path
     ppt_path = os.path.abspath(ppt_path)
@@ -125,7 +129,7 @@ def _do_watermark(ppt_path, watermark_text, output_path, color_rgb, transparency
 
         if export_pdf:
             pdf_path = os.path.splitext(output_path)[0] + ".pdf"
-            presentation.SaveAs(pdf_path, FileFormat=PP_SAVE_AS_PDF)
+            _export_pdf(presentation, pdf_path)
             print(f"Saved watermarked PDF as: {pdf_path}")
 
         return output_path
@@ -142,6 +146,29 @@ def _do_watermark(ppt_path, watermark_text, output_path, color_rgb, transparency
         # Force-terminate any lingering PowerPoint process so the operation
         # is guaranteed to complete and release file locks.
         _kill_powerpoint()
+
+
+def _export_pdf(presentation, pdf_path):
+    """Export the open presentation to a compact, screen-optimised PDF.
+
+    Uses ExportAsFixedFormat with Screen intent (downsamples images) for a much
+    smaller PDF than SaveAs(FileFormat=PDF). Falls back to SaveAs on failure.
+
+    NOTE: all positional args are passed deliberately. A short 3-arg call
+    (path, type, intent) raises "The Python instance can not be converted to a
+    COM object" on some pywin32/Python builds because the optional PrintRange
+    (dispatch) argument is omitted; passing the full arg list avoids that.
+    """
+    try:
+        presentation.ExportAsFixedFormat(
+            pdf_path, PP_FIXED_FORMAT_TYPE_PDF, PP_FIXED_FORMAT_INTENT_SCREEN,
+            0, 1, 1, 0, None, 1, "", -1, -1, -1, -1, 0)
+        if os.path.isfile(pdf_path):
+            return
+    except Exception:
+        pass
+    # Fallback: legacy SaveAs (Standard quality, no image downsampling).
+    presentation.SaveAs(pdf_path, FileFormat=PP_SAVE_AS_PDF)
 
 
 def _next_available(base, suffix, ext):

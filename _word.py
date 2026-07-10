@@ -205,7 +205,15 @@ def _pdf_via_com(docx_path):
         word.Visible = False; word.DisplayAlerts = False
         doc = word.Documents.Open(os.path.abspath(docx_path),
                                   ReadOnly=True, AddToRecentFiles=False)
-        doc.SaveAs2(os.path.abspath(pdf), FileFormat=17)
+        # ExportAsFixedFormat OptimizeFor=1 (OnScreen) downsamples images for a
+        # compact PDF. Fall back to SaveAs2 on any failure.
+        out = os.path.abspath(pdf)
+        try:
+            doc.ExportAsFixedFormat(out, 17, False, 1)
+            if not os.path.isfile(out):
+                doc.SaveAs2(out, FileFormat=17)
+        except Exception:
+            doc.SaveAs2(out, FileFormat=17)
     finally:
         if doc:
             try: doc.Close(SaveChanges=False)

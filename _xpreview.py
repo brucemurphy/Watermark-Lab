@@ -29,13 +29,15 @@ import tempfile
 import zipfile
 
 from PySide6.QtCore import (
-	Qt, QObject, QRunnable, QThreadPool, Signal, QSize, QPointF, QRect,
+	Qt, QObject, QRunnable, QThreadPool, Signal, QSize, QPointF, QRect, QTimer,
 )
 from PySide6.QtGui import (
 	QImage, QPainter, QColor, QFont,
 )
 from PySide6.QtPdf import QPdfDocument
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget, QPushButton, QLabel, QHBoxLayout
+
+from _ffmpeg import get_ffmpeg_exe, FfmpegNotReadyError
 
 PPT_EXTS   = {".pptx", ".ppt"}
 WORD_EXTS_ = {".docx", ".doc"}
@@ -44,6 +46,12 @@ PDF_EXTS_ = {".pdf"}
 
 _NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 _TARGET_W  = 1100   # rasterisation target width in px (quality vs. speed)
+
+# Looping in-preview video playback (Approach B: our own on-demand ffmpeg).
+_PLAY_FPS     = 12    # playback frame rate
+_PLAY_SECONDS = 4     # length of the looped segment
+_PLAY_MAX_W   = 960   # cap decoded frame width to bound memory
+_PAGE_CACHE_MAX = 12  # max rasterised preview pages kept in memory
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -189,6 +197,18 @@ def rasterize_pdf_page(pdf_path: str, page: int = 0, target_w: int = _TARGET_W) 
 		doc.close()
 
 
+def _pdf_page_count(pdf_path: str) -> int:
+	"""Return the number of pages in a PDF (0 if it can't be read)."""
+	doc = QPdfDocument()
+	try:
+		doc.load(pdf_path)
+		if doc.status() != QPdfDocument.Status.Ready:
+			return 0
+		return max(0, doc.pageCount())
+	finally:
+		doc.close()
+
+
 def _pptx_thumbnail(path: str, target_w: int = _TARGET_W) -> QImage:
 	"""Read the embedded first-slide thumbnail from a .pptx — NO COM, ~tens of ms.
 
@@ -248,32 +268,35 @@ def _kill_pid(pid: int) -> None:
 		pass
 
 
-def _word_page1_image(path: str, target_w: int = _TARGET_W, cancel=None) -> QImage:
-	"""Render page 1 of a Word doc to an image via a single, short COM trip.
+def _word_export_to_pdf(path: str, cancel=None) -> tuple[str | None, str | None]:
+	"""Export a Word doc to a temp PDF via a single, short COM trip.
+
+	Returns (pdf_path, tmp_dir). On SUCCESS the caller owns tmp_dir and must
+	remove it when done — so further pages can be rasterised from the PDF. On
+	failure the temp dir is cleaned up here and (None, None) is returned.
 
 	Reliability notes (hard-won by measurement):
-	- We use LATE binding (Dispatch), NOT gencache.EnsureDispatch. Early binding
-	  regenerates Word's gen_py type-library cache on first use in a process,
-	  which takes ~28s — that was the real source of the "25s" preview. Plain
-	  Dispatch boots in ~1s. SaveAs2 works fine without early binding.
-	- We use the robust SaveAs2(PDF) export (~1.8s) and rasterise only page 1
-	  with QtPdf. (ExportAsFixedFormat with a page range crashes with an access
-	  violation on real documents, so it is deliberately avoided.)
-	- We record exactly which WINWORD PID our automation spawns and force-kill
-	  only that one if Quit() doesn't release it — preventing zombie Word
-	  processes from colliding and slowing later previews. A Word the user has
-	  open is never touched.
+	- LATE binding (Dispatch), NOT gencache.EnsureDispatch. Early binding
+	  regenerates Word's gen_py cache on first use (~28s); Dispatch boots ~1s.
+	- Robust SaveAs2(PDF) full export; QtPdf then rasterises pages.
+	  (ExportAsFixedFormat with a page range crashes with an access violation on
+	  real documents, so it is deliberately avoided.)
+	- We force-kill only the WINWORD PID our automation spawned if Quit() doesn't
+	  release it — a Word the user has open is never touched.
+
+	Raises ProtectedFileError for a MIP placeholder export, CancelledError if the
+	shared cancel flag trips.
 	"""
 	import pythoncom
 	import win32com.client
 
-	tmp_dir = tempfile.mkdtemp(prefix="wlx_w1_")
+	tmp_dir = tempfile.mkdtemp(prefix="wlx_w_")
 	local = os.path.join(tmp_dir, os.path.basename(path))
 	try:
 		shutil.copy2(path, local)
 	except Exception:
 		shutil.rmtree(tmp_dir, ignore_errors=True)
-		return QImage()
+		return None, None
 
 	pdf = os.path.splitext(local)[0] + ".pdf"
 	pids_before = _word_pids()
@@ -294,19 +317,22 @@ def _word_page1_image(path: str, target_w: int = _TARGET_W, cancel=None) -> QIma
 		doc = word.Documents.Open(os.path.abspath(local), ReadOnly=True,
 								  AddToRecentFiles=False)
 		_check_cancel(cancel)
-		# Plain, robust full export; QtPdf then rasterises page 1 only.
+		# Plain, robust full export; QtPdf then rasterises the pages we need.
 		doc.SaveAs2(os.path.abspath(pdf), FileFormat=17)  # wdFormatPDF
 		if not os.path.isfile(pdf):
-			return QImage()
+			shutil.rmtree(tmp_dir, ignore_errors=True)
+			return None, None
 		_check_cancel(cancel)
 		# Catch protected docs that exported the MIP placeholder page.
 		if _pdf_is_mip_placeholder(pdf):
 			raise ProtectedFileError(path)
-		return rasterize_pdf_page(pdf, 0, target_w)
+		return pdf, tmp_dir            # SUCCESS: caller owns tmp_dir
 	except (CancelledError, ProtectedFileError):
+		shutil.rmtree(tmp_dir, ignore_errors=True)
 		raise
 	except Exception:
-		return QImage()
+		shutil.rmtree(tmp_dir, ignore_errors=True)
+		return None, None
 	finally:
 		try:
 			if doc:
@@ -323,7 +349,18 @@ def _word_page1_image(path: str, target_w: int = _TARGET_W, cancel=None) -> QIma
 		# the next preview starts clean (prevents the contention slowdown).
 		if our_pid is not None and our_pid in _word_pids():
 			_kill_pid(our_pid)
-		shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _word_page1_image(path: str, target_w: int = _TARGET_W, cancel=None) -> QImage:
+	"""Render page 1 of a Word doc to an image (single-page fast path)."""
+	pdf, tmp_dir = _word_export_to_pdf(path, cancel)
+	try:
+		if not pdf:
+			return QImage()
+		return rasterize_pdf_page(pdf, 0, target_w)
+	finally:
+		if tmp_dir:
+			shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def clean_background(path: str, target_w: int = _TARGET_W, cancel=None) -> QImage:
@@ -365,6 +402,52 @@ def clean_background(path: str, target_w: int = _TARGET_W, cancel=None) -> QImag
 		# A PDF is already renderable — rasterise its first page directly.
 		return rasterize_pdf_page(path, 0, target_w)
 	return QImage()
+
+
+class _PagedResult:
+	"""Result of a paged (PDF/Word) background load: the page-0 image, the total
+	page count, the backing PDF to rasterise further pages from, and an optional
+	temp dir the controller must clean up when the file is unloaded."""
+	__slots__ = ("image", "pages", "pdf_path", "tmp_dir")
+
+	def __init__(self, image: QImage, pages: int, pdf_path: str, tmp_dir):
+		self.image = image
+		self.pages = pages
+		self.pdf_path = pdf_path
+		self.tmp_dir = tmp_dir
+
+
+def paged_background(path: str, target_w: int = _TARGET_W, cancel=None):
+	"""Clean backdrop for a multi-page file (PDF / Word).
+
+	Returns a _PagedResult (page-0 image + page count + backing PDF) or None if
+	the file can't be rendered. Raises ProtectedFileError for encrypted Word.
+	The backing PDF is the source itself for PDFs, or a retained temp export for
+	Word (tmp_dir is then non-None and the caller must clean it up).
+	"""
+	kind = file_kind(path)
+	_check_cancel(cancel)
+	if kind == "pdf":
+		count = _pdf_page_count(path)
+		img0 = rasterize_pdf_page(path, 0, target_w)
+		if img0.isNull():
+			return None
+		return _PagedResult(img0, max(1, count), path, None)
+	if kind == "word":
+		# Pre-COM guard: never launch Office for an encrypted/protected file.
+		if is_protected_file(path):
+			raise ProtectedFileError(path)
+		pdf, tmp_dir = _word_export_to_pdf(path, cancel)
+		if not pdf:
+			return None
+		count = _pdf_page_count(pdf)
+		img0 = rasterize_pdf_page(pdf, 0, target_w)
+		if img0.isNull():
+			if tmp_dir:
+				shutil.rmtree(tmp_dir, ignore_errors=True)
+			return None
+		return _PagedResult(img0, max(1, count), pdf, tmp_dir)
+	return None
 
 
 def _office_export_pdf(path: str, with_watermark: bool, text: str,
@@ -462,30 +545,104 @@ def _word_to_pdf(path: str) -> str | None:
 
 
 def _video_frame(path: str, target_w: int = _TARGET_W) -> QImage:
-	"""Extract the first representative frame of a video as a QImage."""
+	"""Extract the first representative frame of a video as a QImage.
+
+	Raises FfmpegNotReadyError if ffmpeg has not been downloaded yet, so the
+	controller can offer to fetch it and retry (mirrors ProtectedFileError).
+	"""
 	try:
-		from _ffmpeg import get_ffmpeg_exe
 		ffmpeg = get_ffmpeg_exe()
+	except FfmpegNotReadyError:
+		raise            # bubble up so the UI can prompt to download ffmpeg
 	except Exception:
 		return QImage()
 	tmp_dir = tempfile.mkdtemp(prefix="wlx_frame_")
 	out_png = os.path.join(tmp_dir, "frame.png")
 	try:
-		cmd = [
-			ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
-			"-ss", "1", "-i", path, "-frames:v", "1",
-			"-vf", f"scale={target_w}:-1", out_png,
-		]
-		subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-					   creationflags=_NO_WINDOW, timeout=30)
-		if os.path.isfile(out_png):
-			img = QImage(out_png)
-			return img
+		# Try a 1s seek first (skips black intros); fall back to the very first
+		# frame so clips shorter than one second still produce a preview.
+		for seek in ("1", "0"):
+			cmd = [
+				ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+				"-ss", seek, "-i", path, "-frames:v", "1",
+				"-vf", f"scale={target_w}:-1", out_png,
+			]
+			# stdin MUST be redirected: in the windowed (console=False) frozen
+			# build the inherited stdin handle is invalid, so leaving it unset
+			# makes subprocess raise "OSError [WinError 6] The handle is invalid"
+			# and the video preview silently fails (it works fine from source).
+			subprocess.run(
+				cmd,
+				stdin=subprocess.DEVNULL,
+				stdout=subprocess.DEVNULL,
+				stderr=subprocess.DEVNULL,
+				creationflags=_NO_WINDOW,
+				timeout=30,
+			)
+			if os.path.isfile(out_png):
+				img = QImage(out_png)
+				if not img.isNull():
+					return img
 		return QImage()
 	except Exception:
 		return QImage()
 	finally:
 		shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _decode_video_segment(path: str, target_w: int,
+						  seconds: int, fps: int, cancel=None) -> list[QImage]:
+	"""Decode the first `seconds` of a video to a list of clean RGB QImages.
+
+	Uses the app's own on-demand ffmpeg (never bundled) to pipe raw frames.
+	Audio is dropped (-an) — the preview is silent by design. Raises
+	FfmpegNotReadyError if ffmpeg hasn't been downloaded yet.
+	"""
+	ffmpeg = get_ffmpeg_exe()          # raises FfmpegNotReadyError if missing
+	from _video import _probe_video
+	vw, vh, _ = _probe_video(ffmpeg, path)
+	if vw <= 0 or vh <= 0:
+		vw, vh = 1280, 720
+	pw = min(int(target_w), _PLAY_MAX_W)
+	pw -= pw % 2                       # even dimensions for the decoder
+	ph = int(round(pw * vh / vw))
+	ph -= ph % 2
+	if pw <= 0 or ph <= 0:
+		return []
+	frame_bytes = pw * ph * 3
+	cmd = [
+		ffmpeg, "-hide_banner", "-loglevel", "error", "-an",
+		"-ss", "0", "-i", path, "-t", str(seconds),
+		"-vf", f"scale={pw}:{ph},fps={fps}",
+		"-f", "rawvideo", "-pix_fmt", "rgb24", "-",
+	]
+	proc = subprocess.Popen(
+		cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+		stderr=subprocess.DEVNULL, creationflags=_NO_WINDOW,
+	)
+	frames: list[QImage] = []
+	max_frames = seconds * fps + 2
+	try:
+		while len(frames) < max_frames:
+			if cancel is not None and cancel.cancelled:
+				break
+			buf = proc.stdout.read(frame_bytes)
+			if not buf or len(buf) < frame_bytes:
+				break
+			# .copy() so the QImage owns its pixels (buf is reused each read).
+			img = QImage(buf, pw, ph, 3 * pw, QImage.Format_RGB888).copy()
+			frames.append(img)
+	finally:
+		try:
+			proc.stdout.close()
+		except Exception:
+			pass
+		try:
+			proc.terminate()
+			proc.wait(timeout=2)
+		except Exception:
+			pass
+	return frames
 
 
 def composite_watermark(base: QImage, text: str, color_hex: str,
@@ -614,6 +771,10 @@ class _Signals(QObject):
 	cleanReady = Signal(int, str, QImage)   # token, path, clean background
 	failed     = Signal(int, str, str)      # token, path, message
 	protected  = Signal(int, str)           # token, path (encrypted / MIP)
+	ffmpegNeeded = Signal(int, str)         # token, path (video needs ffmpeg)
+	videoFrames  = Signal(int, str, object) # token, path, list[QImage] (playback)
+	videoFailed  = Signal(int, str, str)    # token, path, message (playback)
+	pagedReady   = Signal(int, str, object) # token, path, _PagedResult (pdf/word)
 
 
 def _safe_emit(signal, *args) -> None:
@@ -642,6 +803,18 @@ class _CleanTask(QRunnable):
 
 	def run(self):
 		try:
+			if file_kind(self.path) in ("pdf", "word"):
+				result = paged_background(self.path, cancel=self.cancel)
+				if self.cancel.cancelled:
+					if result is not None and result.tmp_dir:
+						shutil.rmtree(result.tmp_dir, ignore_errors=True)
+					return
+				if result is None:
+					_safe_emit(self.sig.failed, self.token, self.path,
+							   "Could not render preview for this file.")
+				else:
+					_safe_emit(self.sig.pagedReady, self.token, self.path, result)
+				return
 			img = clean_background(self.path, cancel=self.cancel)
 			if self.cancel.cancelled:
 				return
@@ -655,9 +828,46 @@ class _CleanTask(QRunnable):
 		except ProtectedFileError:
 			if not self.cancel.cancelled:
 				_safe_emit(self.sig.protected, self.token, self.path)
+		except FfmpegNotReadyError:
+			# Video preview but ffmpeg isn't downloaded yet — ask the UI to
+			# prompt for the download and retry (mirrors ProtectedFileError).
+			if not self.cancel.cancelled:
+				_safe_emit(self.sig.ffmpegNeeded, self.token, self.path)
 		except Exception as exc:  # noqa: BLE001
 			if not self.cancel.cancelled:
 				_safe_emit(self.sig.failed, self.token, self.path, str(exc))
+
+
+class _VideoDecodeTask(QRunnable):
+	"""Decode a short video segment to clean frames for looping playback.
+
+	Runs on the thread pool so the UI stays responsive; results are handed
+	back via _Signals.videoFrames (or videoFailed / ffmpegNeeded on error).
+	"""
+
+	def __init__(self, token: int, path: str, target_w: int,
+				 signals: _Signals, cancel: _Cancel):
+		super().__init__()
+		self.token, self.path, self.target_w = token, path, target_w
+		self.sig, self.cancel = signals, cancel
+
+	def run(self):
+		try:
+			frames = _decode_video_segment(
+				self.path, self.target_w, _PLAY_SECONDS, _PLAY_FPS, self.cancel)
+			if self.cancel.cancelled:
+				return
+			if not frames:
+				_safe_emit(self.sig.videoFailed, self.token, self.path,
+						   "Couldn't decode this video for playback.")
+			else:
+				_safe_emit(self.sig.videoFrames, self.token, self.path, frames)
+		except FfmpegNotReadyError:
+			if not self.cancel.cancelled:
+				_safe_emit(self.sig.ffmpegNeeded, self.token, self.path)
+		except Exception as exc:  # noqa: BLE001
+			if not self.cancel.cancelled:
+				_safe_emit(self.sig.videoFailed, self.token, self.path, str(exc))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -675,6 +885,10 @@ class PreviewController(QObject):
 	statusChanged = Signal(str)     # human-readable preview status
 	busyChanged   = Signal(bool)
 	protectedFile = Signal(str)     # path — encrypted / sensitivity-labelled
+	ffmpegNeeded  = Signal(str)     # path — video preview needs ffmpeg download
+	playbackChanged      = Signal(bool)  # video playback started / stopped
+	videoPlayableChanged = Signal(bool)  # whether the current file can be played
+	pagesChanged         = Signal(int, int)  # current (1-based), total; <=1 hides nav
 
 	def __init__(self, parent=None):
 		super().__init__(parent)
@@ -683,12 +897,33 @@ class PreviewController(QObject):
 		self._sig.cleanReady.connect(self._on_clean_ready)
 		self._sig.failed.connect(self._on_failed)
 		self._sig.protected.connect(self._on_protected)
+		self._sig.ffmpegNeeded.connect(self._on_ffmpeg_needed)
+		self._sig.videoFrames.connect(self._on_video_frames)
+		self._sig.videoFailed.connect(self._on_video_failed)
+		self._sig.pagedReady.connect(self._on_paged_ready)
 
 		self._token = 0
 		self._path: str | None = None
 		self._clean_bg: QImage = QImage()          # cached clean background
 		self._clean_path: str | None = None        # which file the bg belongs to
 		self._active_cancel: _Cancel | None = None  # flag for the in-flight task
+
+		# Multi-page navigation state (PDF / Word).
+		self._pdf_path: str | None = None          # backing PDF for page renders
+		self._page_count = 1
+		self._page_index = 0
+		self._page_cache: dict[int, QImage] = {}
+		self._page_tmp_dir: str | None = None      # temp dir to clean up (Word)
+
+		# Looping video playback state.
+		self._play_frames: list[QImage] = []
+		self._play_index = 0
+		self._playing = False
+		self._play_decoding = False
+		self._play_cancel: _Cancel | None = None
+		self._play_timer = QTimer(self)
+		self._play_timer.setInterval(int(1000 / _PLAY_FPS))
+		self._play_timer.timeout.connect(self._on_play_tick)
 
 		self._text = "CONFIDENTIAL"
 		self._color_hex = "#A6A6A6"
@@ -710,14 +945,20 @@ class PreviewController(QObject):
 		"""Begin previewing a new file (fast, COM-light backdrop)."""
 		# Any previous task is now stale — tell it to stop doing COM work.
 		self._cancel_active()
+		self.stop_video()
 		self._token += 1
 		self._path = path
+		self.videoPlayableChanged.emit(False)
 		kind = file_kind(path)
 		if kind == "other":
+			self._reset_pages()
+			self.pagesChanged.emit(0, 0)
 			self.statusChanged.emit("Unsupported file type.")
 			self.imageReady.emit(QImage())
 			return
 		if self._clean_path != path or self._clean_bg.isNull():
+			self._reset_pages()             # drop previous file's pages + temp PDF
+			self.pagesChanged.emit(0, 0)    # hide nav until pages are ready
 			self._clean_bg = QImage()
 			self._clean_path = None
 			self.statusChanged.emit("Loading preview…")
@@ -727,23 +968,114 @@ class PreviewController(QObject):
 			self._pool.start(_CleanTask(self._token, path, self._sig, cancel))
 		else:
 			self._composite_live()
+			self.videoPlayableChanged.emit(kind == "video")
+			self.pagesChanged.emit(self._page_index + 1, self._page_count)
 
 	def refresh(self):
 		"""Re-composite the watermark over the cached backdrop (instant)."""
 		if not self._path:
 			return
+		if self._playing:
+			return   # playback already composites live settings each tick
 		self._composite_live()
 
 	def clear(self):
 		# Stop any in-flight COM work immediately and drop its results.
 		self._cancel_active()
+		self.stop_video()
+		self._reset_pages()
 		self._token += 1
 		self._path = None
 		self._clean_bg = QImage()
 		self._clean_path = None
+		self.videoPlayableChanged.emit(False)
+		self.pagesChanged.emit(0, 0)
 		self.busyChanged.emit(False)
 		self.imageReady.emit(QImage())
 		self.statusChanged.emit("")
+
+	def dispose(self):
+		"""Release temp resources on shutdown (no UI signals).
+
+		Cancels the in-flight preview task so a racing Word export self-cleans
+		its temp PDF, stops playback, and removes any retained page temp dir for
+		the currently loaded document. Safe to call when nothing is loaded.
+		"""
+		self._cancel_active()
+		if self._play_cancel is not None:
+			self._play_cancel.cancel()
+			self._play_cancel = None
+		self._play_timer.stop()
+		self._play_frames = []
+		self._reset_pages()
+
+	def is_video_playable(self) -> bool:
+		return (self._path is not None
+				and file_kind(self._path) == "video"
+				and not self._clean_bg.isNull())
+
+	def toggle_video(self):
+		if self._playing or self._play_decoding:
+			self.stop_video()
+		else:
+			self.play_video()
+
+	def play_video(self):
+		"""Decode a short segment and start looping, muted playback."""
+		if not self.is_video_playable():
+			return
+		if self._playing or self._play_decoding:
+			return
+		self._play_decoding = True
+		self.busyChanged.emit(True)
+		self.statusChanged.emit("Loading video preview…")
+		self._play_cancel = _Cancel()
+		self._pool.start(_VideoDecodeTask(
+			self._token, self._path, _TARGET_W, self._sig, self._play_cancel))
+
+	def stop_video(self):
+		"""Stop playback (if any) and restore the still watermarked frame."""
+		if self._play_cancel is not None:
+			self._play_cancel.cancel()
+			self._play_cancel = None
+		self._play_timer.stop()
+		self._play_frames = []
+		self._play_index = 0
+		self._play_decoding = False
+		was_playing = self._playing
+		self._playing = False
+		self.busyChanged.emit(False)
+		if was_playing:
+			self.playbackChanged.emit(False)
+			self._composite_live()   # bring back the still frame
+
+	def is_paged(self) -> bool:
+		return self._page_count > 1 and self._pdf_path is not None
+
+	def next_page(self):
+		self.go_to_page(self._page_index + 1)
+
+	def prev_page(self):
+		self.go_to_page(self._page_index - 1)
+
+	def go_to_page(self, index: int):
+		"""Show a specific page (0-based), rendering + caching it on demand."""
+		if self._page_count <= 1 or not self._pdf_path:
+			return
+		index = max(0, min(self._page_count - 1, index))
+		img = self._page_cache.get(index)
+		if img is None or img.isNull():
+			img = rasterize_pdf_page(self._pdf_path, index, _TARGET_W)
+			if img.isNull():
+				return
+			if len(self._page_cache) >= _PAGE_CACHE_MAX:
+				# Evict the oldest cached page to bound memory.
+				self._page_cache.pop(next(iter(self._page_cache)))
+			self._page_cache[index] = img
+		self._page_index = index
+		self._clean_bg = img
+		self._composite_live()
+		self.pagesChanged.emit(self._page_index + 1, self._page_count)
 
 	# ── Internal ───────────────────────────────────────────────────────
 	def _color_rgb(self) -> int:
@@ -759,6 +1091,70 @@ class PreviewController(QObject):
 								  self._transparency, file_kind(self._path))
 		self.imageReady.emit(img)
 
+	def _on_play_tick(self):
+		if not self._play_frames:
+			return
+		frame = self._play_frames[self._play_index]
+		img = composite_watermark(frame, self._text, self._color_hex,
+								  self._transparency, "video")
+		self.imageReady.emit(img)
+		self._play_index = (self._play_index + 1) % len(self._play_frames)
+
+	def _on_video_frames(self, token: int, path: str, frames):
+		if token != self._token or path != self._path:
+			return
+		self._play_decoding = False
+		self.busyChanged.emit(False)
+		if not frames:
+			self.statusChanged.emit("Couldn't play this video.")
+			return
+		self._play_frames = frames
+		self._play_index = 0
+		self._playing = True
+		self.playbackChanged.emit(True)
+		self._play_timer.start()
+		self.statusChanged.emit("Playing preview — looping, muted")
+
+	def _on_video_failed(self, token: int, path: str, message: str):
+		if token != self._token:
+			return
+		self._play_decoding = False
+		self._playing = False
+		self.busyChanged.emit(False)
+		self.statusChanged.emit(message)
+		self._composite_live()
+
+	def _reset_pages(self):
+		"""Drop page-navigation state and clean up any retained temp PDF."""
+		if self._page_tmp_dir:
+			shutil.rmtree(self._page_tmp_dir, ignore_errors=True)
+		self._page_tmp_dir = None
+		self._pdf_path = None
+		self._page_count = 1
+		self._page_index = 0
+		self._page_cache = {}
+
+	def _on_paged_ready(self, token: int, path: str, result):
+		if token != self._token or path != self._path:
+			# Stale result — clean up any temp PDF the worker produced.
+			if result is not None and result.tmp_dir:
+				shutil.rmtree(result.tmp_dir, ignore_errors=True)
+			return
+		self._active_cancel = None
+		self._reset_pages()
+		self._clean_bg = result.image
+		self._clean_path = path
+		self._pdf_path = result.pdf_path
+		self._page_count = max(1, result.pages)
+		self._page_index = 0
+		self._page_cache = {0: result.image}
+		self._page_tmp_dir = result.tmp_dir
+		self._composite_live()
+		self.busyChanged.emit(False)
+		self.statusChanged.emit("Preview ready")
+		self.videoPlayableChanged.emit(False)
+		self.pagesChanged.emit(1, self._page_count)
+
 	def _on_clean_ready(self, token: int, path: str, img: QImage):
 		if token != self._token:
 			return
@@ -768,11 +1164,14 @@ class PreviewController(QObject):
 		self._composite_live()
 		self.busyChanged.emit(False)
 		self.statusChanged.emit("Preview ready")
+		self.videoPlayableChanged.emit(file_kind(path) == "video")
+		self.pagesChanged.emit(1, 1)
 
 	def _on_failed(self, token: int, path: str, message: str):
 		if token != self._token:
 			return
 		self.busyChanged.emit(False)
+		self.videoPlayableChanged.emit(False)
 		# Keep any live composite already shown; just report.
 		self.statusChanged.emit(message)
 
@@ -780,11 +1179,23 @@ class PreviewController(QObject):
 		if token != self._token:
 			return
 		self.busyChanged.emit(False)
+		self.videoPlayableChanged.emit(False)
 		self._clean_bg = QImage()
 		self._clean_path = None
 		self.imageReady.emit(QImage())
 		self.protectedFile.emit(path)
 		self.statusChanged.emit("Protected file — preview unavailable.")
+
+	def _on_ffmpeg_needed(self, token: int, path: str):
+		if token != self._token:
+			return
+		self._active_cancel = None
+		self.busyChanged.emit(False)
+		self.videoPlayableChanged.emit(False)
+		self.statusChanged.emit("Video preview needs ffmpeg.")
+		# Let the app offer the same download prompt the watermark job uses,
+		# then retry the preview once ffmpeg is available.
+		self.ffmpegNeeded.emit(path)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -794,6 +1205,9 @@ class PreviewCanvas(QWidget):
 	"""Displays a QImage with zoom, pan, and fit-to-window support."""
 
 	zoomChanged = Signal(float)   # current zoom factor (1.0 == fit)
+	playToggled = Signal()        # centered "Play preview" button clicked
+	prevPage    = Signal()        # page navigator: previous page
+	nextPage    = Signal()        # page navigator: next page
 
 	_MIN_ZOOM = 0.1
 	_MAX_ZOOM = 8.0
@@ -810,6 +1224,50 @@ class PreviewCanvas(QWidget):
 		self._pan_mode = False    # explicit pan tool (hand) toggle
 		self._placeholder = "Select a file to preview"
 
+		# Centered floating "Play preview" button for video files.
+		self._play_available = False
+		self._playing = False
+		self._play_btn = QPushButton("\u25B6  Play preview", self)
+		self._play_btn.setCursor(Qt.PointingHandCursor)
+		self._play_btn.setStyleSheet(
+			"QPushButton {"
+			" color: #ffffff;"
+			" background: rgba(20, 24, 32, 0.72);"
+			" border: 1px solid rgba(255, 255, 255, 0.28);"
+			" border-radius: 18px; padding: 8px 18px;"
+			" font: 600 11pt 'Segoe UI'; }"
+			"QPushButton:hover { background: rgba(34, 40, 52, 0.86); }")
+		self._play_btn.clicked.connect(self.playToggled)
+		self._play_btn.hide()
+
+		# Bottom-center page navigator for multi-page files (PDF / Word).
+		self._page_total = 1
+		self._page_bar = QWidget(self)
+		self._page_bar.setStyleSheet(
+			"QWidget { background: rgba(20, 24, 32, 0.80);"
+			" border: 1px solid rgba(255, 255, 255, 0.22);"
+			" border-radius: 16px; }"
+			"QPushButton { color: #ffffff; background: transparent; border: none;"
+			" font: 700 13pt 'Segoe UI'; padding: 0 6px; }"
+			"QPushButton:disabled { color: rgba(255, 255, 255, 0.30); }"
+			"QLabel { color: #ffffff; background: transparent;"
+			" font: 600 10pt 'Segoe UI'; }")
+		_row = QHBoxLayout(self._page_bar)
+		_row.setContentsMargins(10, 5, 10, 5)
+		_row.setSpacing(8)
+		self._prev_btn = QPushButton("\u2039", self._page_bar)
+		self._page_lbl = QLabel("Page 1 / 1", self._page_bar)
+		self._next_btn = QPushButton("\u203A", self._page_bar)
+		self._prev_btn.setCursor(Qt.PointingHandCursor)
+		self._next_btn.setCursor(Qt.PointingHandCursor)
+		self._page_lbl.setAlignment(Qt.AlignCenter)
+		_row.addWidget(self._prev_btn)
+		_row.addWidget(self._page_lbl)
+		_row.addWidget(self._next_btn)
+		self._prev_btn.clicked.connect(self.prevPage)
+		self._next_btn.clicked.connect(self.nextPage)
+		self._page_bar.hide()
+
 	# ── Public API ─────────────────────────────────────────────────────
 	def set_image(self, img: QImage):
 		first = self._image.isNull()
@@ -825,6 +1283,48 @@ class PreviewCanvas(QWidget):
 	def set_placeholder(self, text: str):
 		self._placeholder = text
 		self.update()
+
+	def set_play_available(self, available: bool):
+		"""Show/hide the centered Play button for the current file."""
+		self._play_available = available
+		if not available:
+			self._playing = False
+			self._play_btn.setText("\u25B6  Play preview")
+		self._play_btn.setVisible(available)
+		if available:
+			self._center_play_button()
+			self._play_btn.raise_()
+
+	def set_playing(self, playing: bool):
+		"""Reflect playback state on the button (fit the view on start)."""
+		self._playing = playing
+		self._play_btn.setText("\u23F8  Stop" if playing else "\u25B6  Play preview")
+		if playing:
+			self.reset_view()
+		self._center_play_button()
+
+	def _center_play_button(self):
+		self._play_btn.adjustSize()
+		bw, bh = self._play_btn.width(), self._play_btn.height()
+		self._play_btn.move((self.width() - bw) // 2, (self.height() - bh) // 2)
+
+	def set_pages(self, current: int, total: int):
+		"""Show/update the page navigator; hides itself when total <= 1."""
+		self._page_total = total
+		if total <= 1:
+			self._page_bar.hide()
+			return
+		self._page_lbl.setText(f"Page {current} / {total}")
+		self._prev_btn.setEnabled(current > 1)
+		self._next_btn.setEnabled(current < total)
+		self._position_page_bar()
+		self._page_bar.show()
+		self._page_bar.raise_()
+
+	def _position_page_bar(self):
+		self._page_bar.adjustSize()
+		bw, bh = self._page_bar.width(), self._page_bar.height()
+		self._page_bar.move((self.width() - bw) // 2, self.height() - bh - 16)
 
 	def has_image(self) -> bool:
 		return not self._image.isNull()
@@ -877,6 +1377,9 @@ class PreviewCanvas(QWidget):
 
 	def resizeEvent(self, e):
 		self._recompute_fit()
+		self._center_play_button()
+		if self._page_total > 1:
+			self._position_page_bar()
 		super().resizeEvent(e)
 
 	def wheelEvent(self, e):

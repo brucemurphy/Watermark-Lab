@@ -957,6 +957,7 @@ class _UpdateChecker(QObject):
 	modern Qt UI gets the same auto-update the classic UI already had."""
 
 	updateAvailable = Signal(str, str)   # version, notes
+	finished = Signal()
 
 	def run(self):
 		try:
@@ -968,6 +969,8 @@ class _UpdateChecker(QObject):
 				self.updateAvailable.emit(tag.lstrip("v"), notes)
 		except Exception:
 			pass  # network/API failures are silent — never block launch
+		finally:
+			self.finished.emit()
 
 
 class TitleBar(QFrame):
@@ -2454,8 +2457,7 @@ class WatermarkLabX(QMainWindow):
 		self._upd_worker.moveToThread(self._upd_thread)
 		self._upd_thread.started.connect(self._upd_worker.run)
 		self._upd_worker.updateAvailable.connect(self._on_update_available)
-		# Tear the thread down once the worker signals (or finishes silently).
-		self._upd_worker.updateAvailable.connect(self._upd_thread.quit)
+		self._upd_worker.finished.connect(self._upd_thread.quit)
 		self._upd_thread.start()
 
 	def _on_update_available(self, version: str, notes: str):
@@ -2580,10 +2582,12 @@ class WatermarkLabX(QMainWindow):
 				self.preview.dispose()
 			if getattr(self, "_proc_worker", None) is not None:
 				self._proc_worker.cancel()
-			if getattr(self, "_proc_thread", None) is not None:
-				self._proc_thread.quit()
-				self._proc_thread.wait(3000)
-			QThreadPool.globalInstance().waitForDone(3000)
+			for name in ("_proc_thread", "_dl_thread", "_upd_thread"):
+				thread = getattr(self, name, None)
+				if thread is not None and thread.isRunning():
+					thread.quit()
+					thread.wait()
+			QThreadPool.globalInstance().waitForDone()
 			# Flush any queued preview result so its stale-token cleanup runs
 			# (covers a Word export that finished in the split-second before close).
 			QApplication.processEvents()

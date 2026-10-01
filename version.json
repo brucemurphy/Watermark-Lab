@@ -1,6 +1,6 @@
 {
-  "version": "2.2.0",
-  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v2.2.0/WatermarkLab.zip",
+  "version": "2.2.1",
+  "url": "https://github.com/brucemurphy/Watermark-Lab/releases/download/v2.2.1/WatermarkLab.zip",
   "sha256": "",
-  "notes": "Watermark Lab 2.2.0\n\nWhat's new:\n- Play video previews on a silent loop to see the watermark in motion.\n- Page through PDF and Word previews - not just the first page.\n- Much smaller exported PDFs (screen-optimised).\n- Smart handling of protected files: labelled PowerPoint/Word still watermark with the label preserved, while protected PDFs and DRM-protected videos are detected and clearly flagged.\n\nUpgrading: click Yes when prompted; your presets and recent files are kept."
+  "notes": "Watermark Lab 2.2.1\n\nWhat's fixed:\n- Cleanly stop update, download, processing, and preview workers before exit.\n- Prevent a shutdown race that could leave temporary files behind or display a temporary-directory cleanup warning.\n\nUpgrading: click Yes when prompted; your presets and recent files are kept."
 }
